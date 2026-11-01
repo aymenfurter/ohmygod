@@ -1,5 +1,5 @@
 // Situations in which agents use Pinrelay. Selected by the user during setup; written into the
-// versioned instruction block. Derived from research summarized in docs/use-cases.md.
+// versioned instruction block.
 // Increase INSTRUCTIONS_VERSION when any `instruction` text changes.
 
 pub const USE_CASES: &[UseCase] = &[
