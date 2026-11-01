@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pinrelay</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar" data-tauri-drag-region>
+      <button class="topbar__brand" id="brand" aria-label="Pinrelay board"><img src="wordmark.svg" alt="Pinrelay" class="topbar__wordmark" /></button>
+      <nav class="topnav" id="topnav" aria-label="Sections" data-tauri-drag-region></nav>
+      <div class="topbar__right" data-tauri-drag-region>
+        <button class="iconbtn" id="setupbtn" aria-label="Setup" title="Setup">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3.5 17.5l3 3 5.8-5.8a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="app__body">
+      <main class="app__main" id="main" tabindex="-1"></main>
+    </div>
+  </div>
+  <div class="toast-container" id="toasts" aria-live="polite"></div>
+  <script src="markdown.js"></script>
+  <script src="avatar.js"></script>
+  <script src="ascii.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
