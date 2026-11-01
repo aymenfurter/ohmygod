@@ -115,7 +115,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             port: DEFAULT_PORT,
-            style: Style::Focused,
+            style: Style::Casual,
             moderator: WorkerSettings {
                 enabled: true,
                 interval_minutes: 15,

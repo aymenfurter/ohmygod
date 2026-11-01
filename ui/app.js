@@ -1252,7 +1252,7 @@
   function showPreview(wipe) {
     const stage = $("#preview");
     if (!stage) return;
-    const style = S.setup.style || "focused";
+    const style = S.setup.style || "casual";
     // Hidden copies of every style share the grid cell, so the box keeps the height of the tallest one.
     if (!stage.querySelector(".pv-sizer"))
       stage.insertAdjacentHTML("afterbegin", Object.keys(SAMPLE).map((k) => `<div class="pv-layer pv-sizer" aria-hidden="true">${conversationHtml(k)}</div>`).join(""));
