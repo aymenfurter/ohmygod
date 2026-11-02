@@ -21,6 +21,7 @@ fn new_thread(b: &mut Board, agent: &str, title: &str) -> String {
             attachment_paths: vec![],
             idempotency_key: None,
             reply_to: None,
+            flags: Default::default(),
         },
     )
     .unwrap()
@@ -38,6 +39,7 @@ fn reply(b: &mut Board, agent: &str, thread: &str, body: &str) -> String {
             attachment_paths: vec![],
             idempotency_key: None,
             reply_to: None,
+            flags: Default::default(),
         },
     )
     .unwrap()
@@ -117,7 +119,7 @@ fn pending_receipts_limit_and_reply_counts_as_useful() {
     assert_eq!(err.kind, ErrorKind::FeedbackRequired);
     // A reply resolves the pending receipt for that thread as useful.
     let out = b
-        .post(&r, PostInput { thread_id: Some(ts[0].clone()), title: None, body: "Same here; fixed by X".into(), tags: vec![], attachment_paths: vec![], idempotency_key: None, reply_to: None })
+        .post(&r, PostInput { thread_id: Some(ts[0].clone()), title: None, body: "Same here; fixed by X".into(), tags: vec![], attachment_paths: vec![], idempotency_key: None, reply_to: None, flags: Default::default() })
         .unwrap();
     assert_eq!(out.auto_feedback, vec![first.receipt_id.clone()]);
     assert!(b.read(&r, &ts[3], false, 0, 20).is_ok());
@@ -186,7 +188,7 @@ fn idempotent_posts_and_unique_names() {
     let (_d, mut b) = board();
     let a = b.join(None, Some("Juniper"), None, None).unwrap().id;
     assert_eq!(b.join(None, Some("juniper"), None, None).unwrap_err().kind, ErrorKind::Conflict);
-    let input = PostInput { thread_id: None, title: Some("x fails".into()), body: "body".into(), tags: vec![], attachment_paths: vec![], idempotency_key: Some("k1".into()), reply_to: None };
+    let input = PostInput { thread_id: None, title: Some("x fails".into()), body: "body".into(), tags: vec![], attachment_paths: vec![], idempotency_key: Some("k1".into()), reply_to: None, flags: Default::default() };
     let o1 = b.post(&a, input.clone()).unwrap();
     let o2 = b.post(&a, input).unwrap();
     assert!(o2.duplicate);
@@ -255,7 +257,7 @@ fn attachment_policy_limits_and_expiry() {
     let src = tempfile::tempdir().unwrap();
     let log = src.path().join("build.log");
     std::fs::write(&log, vec![b'x'; 2 * 1024 * 1024]).unwrap();
-    let input = |paths: Vec<String>| PostInput { thread_id: None, title: Some("Build log".into()), body: "See log".into(), tags: vec![], attachment_paths: paths, idempotency_key: None, reply_to: None };
+    let input = |paths: Vec<String>| PostInput { thread_id: None, title: Some("Build log".into()), body: "See log".into(), tags: vec![], attachment_paths: paths, idempotency_key: None, reply_to: None, flags: Default::default() };
     let path = log.display().to_string();
 
     b.attachments = AttachmentPolicy { enabled: false, ..Default::default() };
@@ -464,4 +466,51 @@ fn impact_counts_useful_marks_from_others_pins_and_disputes() {
     assert!(quiet.contains("Your impact") && !quiet.contains("Top agents") && !quiet.contains("Next above you"), "{quiet}");
     let block = crate::instructions::instruction_block(crate::config::Style::Casual, &crate::instructions::default_uses(), true);
     assert!(block.contains("### Your impact") && block.contains("Never game it."));
+}
+
+#[test]
+fn opt_in_post_types_need_their_feature_and_handoffs_need_a_thread() {
+    let (_d, mut b) = board();
+    let a = b.join(None, Some("Ada"), None, None).unwrap().id;
+    let c = b.join(None, Some("Cy"), None, None).unwrap().id;
+    let t = new_thread(&mut b, &a, "Flaky payments test");
+    let post = |b: &mut Board, thread: Option<&str>, title: Option<&str>, flags: PostFlags| {
+        b.post(&a, PostInput { thread_id: thread.map(String::from), title: title.map(String::from), body: "Did X, ruled out Y, Z still open.".into(), tags: vec![], attachment_paths: vec![], idempotency_key: None, reply_to: None, flags })
+    };
+    let handoff = PostFlags { handoff: true, ..Default::default() };
+    let request = PostFlags { request: true, ..Default::default() };
+    let private = PostFlags { agents_only: true, ..Default::default() };
+    for f in [handoff, request, private] {
+        assert!(post(&mut b, Some(&t), None, f).unwrap_err().message.contains("turned off"));
+    }
+
+    b.features = Features { assignments: true, agent_only: true, handoffs: true };
+    let err = post(&mut b, None, Some("Handoff: payments"), handoff).unwrap_err();
+    assert!(err.message.contains("Never start a thread for a handoff"), "{}", err.message);
+    let h = post(&mut b, Some(&t), None, handoff).unwrap().post_id;
+    let r = post(&mut b, Some(&t), None, request).unwrap().post_id;
+    let p = post(&mut b, Some(&t), None, private).unwrap().post_id;
+    assert!(b.state.posts[&h].flags.handoff && b.state.posts[&r].flags.request && b.state.posts[&p].flags.agents_only);
+
+    let welcome = crate::render::welcome(&b, &b.state.agents[&c].clone(), true);
+    assert!(welcome.contains("## Recent handoff notes") && welcome.contains(&format!("`{h}`")), "{welcome}");
+    assert!(welcome.contains("## Open requests for help") && welcome.contains(&format!("`{r}`")), "{welcome}");
+    let read = b.read(&c, &t, true, 0, 20).unwrap();
+    let view = crate::render::thread_view(&b, &read);
+    assert!(view.contains("[handoff") && view.contains("request for help") && view.contains("agents only"), "{view}");
+
+    // Replying to a request closes it.
+    b.post(&c, PostInput { thread_id: Some(t.clone()), title: None, body: "Took it: fixed Z.".into(), tags: vec![], attachment_paths: vec![], idempotency_key: None, reply_to: Some(r.clone()), flags: Default::default() }).unwrap();
+    let welcome = crate::render::welcome(&b, &b.state.agents[&c].clone(), true);
+    assert!(!welcome.contains("## Open requests for help"), "{welcome}");
+
+    // Flags survive a reload, and agent-only previews stay masked.
+    let dir = b.dir.clone();
+    drop(b);
+    let b2 = Board::open(&dir).unwrap();
+    assert!(b2.state.posts[&p].flags.agents_only && b2.state.posts[&h].flags.handoff);
+    let item = b2.state.activity.iter().find(|x| x.kind == "post" && x.text.contains("agent-only")).expect("masked activity");
+    assert!(!item.text.contains("Did X"));
+    let s = crate::views::summary(&b2, &b2.state.threads[&t]);
+    assert!(s.last_post_preview == "Took it: fixed Z." || s.last_post_preview.contains("agent-only"));
 }

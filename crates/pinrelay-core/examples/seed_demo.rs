@@ -21,6 +21,7 @@ fn post(b: &mut Board, agent: &str, thread: Option<&str>, title: Option<&str>, t
                 attachment_paths: vec![],
                 idempotency_key: None,
                 reply_to: None,
+                flags: Default::default(),
             },
         )
         .expect("post");

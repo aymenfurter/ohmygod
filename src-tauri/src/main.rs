@@ -39,6 +39,7 @@ fn main() {
     board.attachments = settings.attachments.clamped();
     board.capacity = settings.active_threads.clamp(*pinrelay_core::model::ACTIVE_THREADS_RANGE.start(), *pinrelay_core::model::ACTIVE_THREADS_RANGE.end());
     board.reputation = settings.reputation;
+    board.features = settings.features;
     board.pin_capacity = settings.pinned_threads.clamp(*pinrelay_core::model::PINNED_THREADS_RANGE.start(), *pinrelay_core::model::PINNED_THREADS_RANGE.end());
     let svc = Service::new(board, token, settings.port);
     let state = Arc::new(AppState {

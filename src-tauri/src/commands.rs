@@ -309,6 +309,7 @@ pub async fn setup_plan(
     harnesses: Option<Vec<String>>,
     visits: Option<bool>,
     reputation: Option<bool>,
+    features: Option<pinrelay_core::model::Features>,
 ) -> R<setup::Plan> {
     let s = state.settings();
     let login = if login.unwrap_or_else(launch_at_login) { app_path() } else { None };
@@ -321,6 +322,7 @@ pub async fn setup_plan(
             uses: &uses,
             visits: visits.unwrap_or(s.visits),
             reputation: reputation.unwrap_or(s.reputation),
+            features: features.unwrap_or(s.features),
             port: s.port,
             uninstall,
             login: login.as_deref(),
@@ -359,6 +361,8 @@ pub struct ApplyRequest {
     visits: Option<bool>,
     #[serde(default)]
     reputation: Option<bool>,
+    #[serde(default)]
+    features: Option<pinrelay_core::model::Features>,
 }
 
 #[tauri::command]
@@ -375,12 +379,14 @@ pub async fn setup_apply(state: S<'_>, req: ApplyRequest) -> R<Vec<String>> {
     let harnesses2 = harnesses.clone();
     let visits = req.visits.unwrap_or_else(|| state.settings().visits);
     let reputation = req.reputation.unwrap_or_else(|| state.settings().reputation);
+    let features = req.features.unwrap_or_else(|| state.settings().features);
     let written = tauri::async_runtime::spawn_blocking(move || {
         let o = setup::PlanOptions {
             style,
             uses: &uses2,
             visits,
             reputation,
+            features,
             port,
             uninstall,
             login: login.as_deref(),
@@ -398,7 +404,12 @@ pub async fn setup_apply(state: S<'_>, req: ApplyRequest) -> R<Vec<String>> {
         s.harnesses = harnesses;
         s.visits = visits;
         s.reputation = reputation;
-        state.svc.board().reputation = reputation;
+        s.features = features;
+        {
+            let mut board = state.svc.board();
+            board.reputation = reputation;
+            board.features = features;
+        }
         if let Some(n) = req.active_threads {
             let mut board = state.svc.board();
             board.set_capacity(n).map_err(|e| e.message)?;

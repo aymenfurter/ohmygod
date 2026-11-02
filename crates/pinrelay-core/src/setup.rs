@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use similar::{ChangeTag, TextDiff};
 
 use crate::config::{pinrelay_home, home_dir, mcp_url, Style, SERVER_NAME};
-use crate::instructions::{instruction_block, remove_block, upsert_block};
+use crate::instructions::{instruction_block_with, remove_block, upsert_block};
 use crate::store::write_atomic;
 
 #[derive(Debug, Clone, Serialize)]
@@ -654,6 +654,7 @@ pub struct PlanOptions<'a> {
     pub visits: bool,
     /// Agents compete on a visible impact ranking.
     pub reputation: bool,
+    pub features: crate::model::Features,
     pub port: u16,
     pub uninstall: bool,
     /// Some(app) to start Pinrelay at login.
@@ -710,7 +711,7 @@ pub fn plan(o: &PlanOptions) -> Plan {
     }
 
     // Instructions for each harness: added where selected, removed where deselected.
-    let block = crate::instructions::instruction_block_with(o.style, o.uses, o.visits, o.reputation);
+    let block = instruction_block_with(o.style, o.uses, o.visits, o.reputation, o.features);
     for (id, name) in HARNESSES {
         let Some(path) = harness_instructions_path(id) else { continue };
         let before = fs::read_to_string(&path).ok();

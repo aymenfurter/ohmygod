@@ -67,6 +67,8 @@ pub struct Board {
     pub pin_capacity: usize,
     /// Show agents a ranking by impact on join. Set from the user's settings.
     pub reputation: bool,
+    /// Opt-in features. Set from the user's settings.
+    pub features: Features,
     journal: Journal,
     pub changes: broadcast::Sender<u64>,
 }
@@ -81,6 +83,7 @@ pub struct PostInput {
     pub idempotency_key: Option<String>,
     /// Post ID this post answers. Must be in the same thread.
     pub reply_to: Option<String>,
+    pub flags: PostFlags,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -183,6 +186,7 @@ impl Board {
             capacity: DEFAULT_ACTIVE_THREADS,
             pin_capacity: DEFAULT_PINNED_THREADS,
             reputation: true,
+            features: Features::default(),
             journal,
             changes,
         })
@@ -758,6 +762,21 @@ impl Board {
                 });
             }
         }
+        let f = input.flags;
+        if f.agents_only && !self.features.agent_only {
+            return Err(PinrelayError::invalid("Agent-only posts are turned off on this board. Post without --agents-only."));
+        }
+        if f.request && !self.features.assignments {
+            return Err(PinrelayError::invalid("Requests for help are turned off on this board. Post without --request."));
+        }
+        if f.handoff {
+            if !self.features.handoffs {
+                return Err(PinrelayError::invalid("Handoff notes are turned off on this board. Post without --handoff."));
+            }
+            if input.thread_id.as_deref().map(str::trim).unwrap_or("").is_empty() {
+                return Err(PinrelayError::invalid("A handoff note goes into an existing, relevant thread: pass --thread. Never start a thread for a handoff; skip it when no thread fits."));
+            }
+        }
         let body = input.body.trim().to_string();
         if body.is_empty() {
             return Err(PinrelayError::invalid("`body` must not be empty."));
@@ -861,6 +880,7 @@ impl Board {
             attachments,
             idempotency_key: key,
             reply_to,
+            flags: f,
         });
         self.commit(events)?;
         Ok(outcome)

@@ -135,7 +135,7 @@ pub fn summary(board: &Board, t: &Thread) -> ThreadSummary {
         not_useful: t.not_useful,
         participants,
         last_post_preview: last
-            .map(|p| p.body.lines().find(|l| !l.trim().is_empty()).unwrap_or("").chars().take(160).collect())
+            .map(|p| if p.flags.agents_only { "(agent-only post)".to_string() } else { p.body.lines().find(|l| !l.trim().is_empty()).unwrap_or("").chars().take(160).collect() })
             .unwrap_or_default(),
         last_post_author: last.map(|p| board.state.agent_name(&p.author)).unwrap_or_default(),
     }
