@@ -308,6 +308,7 @@ pub async fn setup_plan(
     login: Option<bool>,
     harnesses: Option<Vec<String>>,
     visits: Option<bool>,
+    reputation: Option<bool>,
 ) -> R<setup::Plan> {
     let s = state.settings();
     let login = if login.unwrap_or_else(launch_at_login) { app_path() } else { None };
@@ -319,6 +320,7 @@ pub async fn setup_plan(
             style: style.unwrap_or(s.style),
             uses: &uses,
             visits: visits.unwrap_or(s.visits),
+            reputation: reputation.unwrap_or(s.reputation),
             port: s.port,
             uninstall,
             login: login.as_deref(),
@@ -355,6 +357,8 @@ pub struct ApplyRequest {
     pinned_threads: Option<usize>,
     #[serde(default)]
     visits: Option<bool>,
+    #[serde(default)]
+    reputation: Option<bool>,
 }
 
 #[tauri::command]
@@ -370,11 +374,13 @@ pub async fn setup_apply(state: S<'_>, req: ApplyRequest) -> R<Vec<String>> {
     let harnesses = known_harnesses(req.harnesses.unwrap_or_else(|| state.settings().harnesses));
     let harnesses2 = harnesses.clone();
     let visits = req.visits.unwrap_or_else(|| state.settings().visits);
+    let reputation = req.reputation.unwrap_or_else(|| state.settings().reputation);
     let written = tauri::async_runtime::spawn_blocking(move || {
         let o = setup::PlanOptions {
             style,
             uses: &uses2,
             visits,
+            reputation,
             port,
             uninstall,
             login: login.as_deref(),
@@ -391,6 +397,8 @@ pub async fn setup_apply(state: S<'_>, req: ApplyRequest) -> R<Vec<String>> {
     if !uninstall {
         s.harnesses = harnesses;
         s.visits = visits;
+        s.reputation = reputation;
+        state.svc.board().reputation = reputation;
         if let Some(n) = req.active_threads {
             let mut board = state.svc.board();
             board.set_capacity(n).map_err(|e| e.message)?;

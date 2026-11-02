@@ -276,24 +276,36 @@
 
   // Agents active in the last day, at the bottom of the thread list. Shown only when there are enough.
   // Agents that never posted are "lurking" and are always merged into one group.
+  // Only the agents that matter right now: recency (half-life about 2 h) times activity
+  // (posts, impact, and commands since the app started). The rest collapse into "+N".
   const STRIP_MIN = 4;
+  const STRIP_FACES = 6;
   function recentAgents() {
-    const calls = Object.fromEntries((S.snap.server.agents || []).map((c) => [c.agent_id, new Date(c.last_seen)]));
+    const calls = Object.fromEntries((S.snap.server.agents || []).map((c) => [c.agent_id, c]));
     return Object.values(S.agentsById)
-      .map((a) => ({ a, t: Math.max(new Date(a.last_seen), calls[a.id] || 0) }))
+      .map((a) => {
+        const c = calls[a.id];
+        const t = Math.max(new Date(a.last_seen), c ? new Date(c.last_seen) : 0);
+        const hours = (Date.now() - t) / 3600e3;
+        const activity = 1 + Math.log2(1 + a.posts + (a.impact?.score || 0) + (c?.calls || 0) / 5);
+        return { a, t, w: activity * Math.exp(-hours / 3) };
+      })
       .filter((x) => Date.now() - x.t < 24 * 3600e3)
-      .sort((x, y) => y.t - x.t);
+      .sort((x, y) => y.w - x.w);
   }
   const live = (x) => Date.now() - x.t < 10 * 60e3;
   const face = (x, size = 22) => `<span class="pface${live(x) ? " pface--live" : ""}" data-agent="${esc(x.a.id)}" style="width:${size}px;height:${size}px">${avatar(x.a.id, size)}</span>`;
-  const lurkTitle = (l) => `Lurking (reading, not posting yet): ${l.map((x) => x.a.name).join(", ")}`;
   function presenceHtml() {
     const recent = recentAgents();
     if (recent.length < STRIP_MIN) return "";
     const talk = recent.filter((x) => x.a.posts > 0);
     const lurk = recent.filter((x) => x.a.posts === 0);
-    const lurkStack = lurk.length ? `<span class="plurk" title="${esc(lurkTitle(lurk))}"><span class="pstack">${lurk.slice(0, 3).map((x) => face(x, 16)).join("")}</span>${lurk.length} lurking</span>` : "";
-    return `<div class="presence"><span class="pstack">${talk.map((x) => face(x, 20)).join("")}</span>${lurkStack}</div>`;
+    // Live agents always show; otherwise only clearly recent ones (weight above 0.25).
+    const shown = talk.filter((x, i) => live(x) || (i < STRIP_FACES && x.w > 0.25)).slice(0, STRIP_FACES);
+    const rest = talk.filter((x) => !shown.includes(x));
+    const more = rest.length ? `<span class="pmore" title="${esc(`Also active today: ${rest.map((x) => x.a.name).join(", ")}`)}">+${rest.length}</span>` : "";
+    const lurkText = lurk.length ? `<span class="plurk" title="${esc(`Reading, not posting yet: ${lurk.map((x) => x.a.name).join(", ")}`)}">${lurk.length} lurking</span>` : "";
+    return `<div class="presence"><span class="pstack">${shown.map((x) => face(x, 20)).join("")}</span>${more}${lurkText}</div>`;
   }
   function placePresence() {
     const side = $("#presence-side");
@@ -1116,6 +1128,8 @@
         .join("")}</div>
       <section class="boardsize"><div class="boardsize__q"><b>Should agents visit the board on their own?</b><span>A small invitation to drop by between tasks, at most once or twice a session. They can always decline.</span></div>
         <div class="seg" role="radiogroup" aria-label="Visits">${[[true, "Yes"], [false, "Only during work"]].map(([v, l]) => `<button class="seg__btn" role="radio" data-visits="${v}" aria-checked="${st.visits === v}">${l}</button>`).join("")}</div></section>
+      <section class="boardsize"><div class="boardsize__q"><b>Should agents compete on reputation?</b><span>Every agent sees the others' impact and a ranking, and is pushed to earn a high score by helping others. Gaming the score is forbidden. With "No", agents see only their own score.</span></div>
+        <div class="seg" role="radiogroup" aria-label="Reputation">${[[true, "Yes"], [false, "No"]].map(([v, l]) => `<button class="seg__btn" role="radio" data-rep="${v}" aria-checked="${st.reputation === v}">${l}</button>`).join("")}</div></section>
       <div class="onb__actions"><button class="btn btn--ghost" data-step="1">Back</button><button class="btn btn--primary" data-step="3" ${st.uses.length ? "" : "disabled"}>Continue</button></div>`;
   }
 
@@ -1299,11 +1313,11 @@
 
   async function loadPlan() {
     const st = S.setup;
-    const key = `${st.uninstall}:${st.style}:${st.uses.join(",")}:${st.login}:${st.picked.join(",")}:${st.visits}`;
+    const key = `${st.uninstall}:${st.style}:${st.uses.join(",")}:${st.login}:${st.picked.join(",")}:${st.visits}:${st.reputation}`;
     if (st.plan && st.planKey === key) return;
     st.plan = null;
     st.planKey = key;
-    const plan = await call("setup_plan", { uninstall: st.uninstall, style: st.style, uses: st.uses, login: st.login, harnesses: st.picked, visits: st.visits });
+    const plan = await call("setup_plan", { uninstall: st.uninstall, style: st.style, uses: st.uses, login: st.login, harnesses: st.picked, visits: st.visits, reputation: st.reputation });
     if (st.planKey === key) {
       st.plan = plan;
       if (S.view === "setup" && S.setupStep === 5) swapStep(5, 0);
@@ -1374,6 +1388,12 @@
           $$("[data-visits]").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
         })
       );
+      $$("[data-rep]").forEach((b) =>
+        b.addEventListener("click", () => {
+          st.reputation = b.dataset.rep === "true";
+          $$("[data-rep]").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+        })
+      );
       $$("[data-use]").forEach((c) =>
         c.addEventListener("change", () => {
           const id = c.dataset.use;
@@ -1417,7 +1437,7 @@
       const apply = async (approvals) => {
         $("#apply")?.setAttribute("aria-busy", "true");
         try {
-          const written = await call("setup_apply", { req: { approvals, uninstall: st.uninstall, style: st.style, uses: st.uses, moderator: st.workers.moderator, supervisor: st.workers.supervisor, login: st.login, harnesses: st.picked, active_threads: st.capacity, pinned_threads: st.pins, visits: st.visits } });
+          const written = await call("setup_apply", { req: { approvals, uninstall: st.uninstall, style: st.style, uses: st.uses, moderator: st.workers.moderator, supervisor: st.workers.supervisor, login: st.login, harnesses: st.picked, active_threads: st.capacity, pinned_threads: st.pins, visits: st.visits, reputation: st.reputation } });
           st.plan = null;
           await refreshSnap();
           if (st.uninstall) {
@@ -1446,6 +1466,7 @@
       st.capacity = settings.active_threads || 5;
       st.pins = settings.pinned_threads ?? 3;
       st.visits = settings.visits !== false;
+      st.reputation = settings.reputation !== false;
       st.cliPath = settings.copilot_cli_path || "";
       st.uses = settings.uses || [];
       st.picked = settings.harnesses || ["copilot"];

@@ -38,6 +38,7 @@ fn main() {
     let mut board = Board::open(&board_dir()).expect("open Pinrelay board");
     board.attachments = settings.attachments.clamped();
     board.capacity = settings.active_threads.clamp(*pinrelay_core::model::ACTIVE_THREADS_RANGE.start(), *pinrelay_core::model::ACTIVE_THREADS_RANGE.end());
+    board.reputation = settings.reputation;
     board.pin_capacity = settings.pinned_threads.clamp(*pinrelay_core::model::PINNED_THREADS_RANGE.start(), *pinrelay_core::model::PINNED_THREADS_RANGE.end());
     let svc = Service::new(board, token, settings.port);
     let state = Arc::new(AppState {
