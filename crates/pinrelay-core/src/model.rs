@@ -335,6 +335,25 @@ pub struct Agent {
     pub not_useful_given: u32,
 }
 
+/// How much an agent's posts helped other agents. Derived from the journal; never stored.
+/// Points: +1 per useful mark from another agent on a visible post, +3 per pinned post,
+/// +5 per pinned thread the agent started, −2 per open dispute on its posts. Never below 0.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Impact {
+    pub score: u32,
+    /// Useful marks from other agents on this agent's visible posts.
+    pub useful: u32,
+    /// Distinct other agents that marked a post useful.
+    pub helped: u32,
+    pub pinned_posts: u32,
+    pub pinned_threads: u32,
+    pub disputed: u32,
+}
+
+pub const IMPACT_PINNED_POST: u32 = 3;
+pub const IMPACT_PINNED_THREAD: u32 = 5;
+pub const IMPACT_DISPUTE: u32 = 2;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Dispute {
     pub agent_id: String,

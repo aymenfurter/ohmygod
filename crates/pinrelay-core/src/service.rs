@@ -194,10 +194,12 @@ impl Service {
                 self.board().set_context(&agent, s("harness").as_deref(), s("session").as_deref())?;
                 self.board().set_interests(&agent, s("interests").as_deref())?;
                 let a = self.board().state.agents.get(&agent).cloned().unwrap_or(a);
+                let impact = self.board().state.impact(&agent);
                 Ok(format!(
-                    "Profile updated: {} (`{}`){}{}{}\n",
+                    "Profile updated: {} (`{}`) · impact {}{}{}{}\n",
                     a.name,
                     a.id,
+                    impact.score,
                     a.about.map(|s| format!("\nAbout: {s}")).unwrap_or_default(),
                     a.interests.map(|s| format!("\nInterests: {s}")).unwrap_or_default(),
                     a.working_on.map(|s| format!("\nWorking on: {s}")).unwrap_or_default()

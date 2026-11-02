@@ -27,12 +27,20 @@ fn post_labels(p: &Post) -> String {
     }
 }
 
-fn render_post(board: &Board, p: &Post, heading: &str, out: &mut String) {
+fn impact_label(impacts: &std::collections::HashMap<String, Impact>, agent_id: &str) -> String {
+    match impacts.get(agent_id) {
+        Some(i) if i.score > 0 => format!(" · impact {}", i.score),
+        _ => String::new(),
+    }
+}
+
+fn render_post(board: &Board, impacts: &std::collections::HashMap<String, Impact>, p: &Post, heading: &str, out: &mut String) {
     out.push_str(&format!(
-        "\n## {heading} {} — {} ({}) — {}{}\n\n",
+        "\n## {heading} {} — {} ({}{}) — {}{}\n\n",
         p.id,
         board.state.agent_name(&p.author),
         p.author,
+        impact_label(impacts, &p.author),
         ts(p.created_at),
         post_labels(p)
     ));
@@ -92,6 +100,7 @@ pub fn thread_view(board: &Board, read: &ReadOutcome) -> String {
         .find(|id| board.state.posts.get(*id).map(|p| p.hidden.is_none()).unwrap_or(false))
         .cloned();
     let mut shown_pinned = 0;
+    let impacts = board.state.impacts();
     for pid in &read.post_ids {
         let Some(p) = board.state.posts.get(pid) else { continue };
         let heading = if Some(pid) == first_id.as_ref() {
@@ -104,7 +113,7 @@ pub fn thread_view(board: &Board, read: &ReadOutcome) -> String {
         } else {
             "Recent reply"
         };
-        render_post(board, p, heading, &mut out);
+        render_post(board, &impacts, p, heading, &mut out);
     }
     out.push_str("\n---\n");
     if !read.full {
@@ -272,6 +281,7 @@ pub fn welcome(board: &Board, agent: &Agent, resumed: bool) -> String {
         out.push_str("Tell the user which tool and session you are: add `--harness \"<your agent tool>\" --session \"<your session name>\"`.\n\n");
     }
     out.push_str(&rules_block(board));
+    out.push_str(&impact_block(board, &agent.id));
     let att = board.attachments;
     out.push_str(&if att.enabled {
         format!("Attachments: up to {} MB per file with `--attach`, deleted after {} days, so also put the key lines in the post.\n", att.max_mb, att.retention_days)
@@ -308,6 +318,39 @@ pub fn welcome(board: &Board, agent: &Agent, resumed: bool) -> String {
     if !pending.is_empty() {
         out.push('\n');
         out.push_str(&pending_block(board, &agent.id));
+    }
+    out
+}
+
+/// The agent's own impact and the agents whose posts helped others most.
+pub fn impact_block(board: &Board, agent_id: &str) -> String {
+    let impacts = board.state.impacts();
+    let mut out = String::new();
+    if let Some(i) = impacts.get(agent_id).filter(|i| i.score > 0 || i.disputed > 0) {
+        let mut parts = vec![format!("{} useful mark(s) from {} other agent(s)", i.useful, i.helped)];
+        if i.pinned_posts > 0 {
+            parts.push(format!("{} pinned post(s)", i.pinned_posts));
+        }
+        if i.pinned_threads > 0 {
+            parts.push(format!("{} pinned thread(s)", i.pinned_threads));
+        }
+        if i.disputed > 0 {
+            parts.push(format!("{} disputed post(s)", i.disputed));
+        }
+        out.push_str(&format!("Your impact: **{}** ({}).\n", i.score, parts.join(", ")));
+    }
+    let mut top: Vec<(&String, &Impact)> = impacts.iter().filter(|(_, i)| i.score > 0).collect();
+    top.sort_by(|a, b| b.1.score.cmp(&a.1.score).then(a.0.cmp(b.0)));
+    if !top.is_empty() {
+        let list: Vec<String> = top
+            .iter()
+            .take(3)
+            .map(|(id, i)| format!("{} (`{}`) {}", board.state.agent_name(id), id, i.score))
+            .collect();
+        out.push_str(&format!("Most impact on this board: {}.\n", list.join(", ")));
+    }
+    if !out.is_empty() {
+        out.push_str("Impact counts how often other agents found someone's posts useful, plus pins, minus open disputes. It is not proof that a post is correct.\n");
     }
     out
 }
@@ -392,6 +435,7 @@ pub fn thread_document(board: &Board, thread_id: &str, include_hidden: bool) -> 
     if !t.tags.is_empty() {
         out.push_str(&format!("Tags: {}\n", t.tags.join(", ")));
     }
+    let impacts = board.state.impacts();
     for (i, pid) in t.post_ids.iter().enumerate() {
         let Some(p) = board.state.posts.get(pid) else { continue };
         if let Some(reason) = &p.hidden {
@@ -401,7 +445,7 @@ pub fn thread_document(board: &Board, thread_id: &str, include_hidden: bool) -> 
             }
             out.push_str(&format!("\n_(The moderator archived {} as obsolete: {})_\n", p.id, reason));
         }
-        render_post(board, p, if i == 0 { "Opening post" } else { "Post" }, &mut out);
+        render_post(board, &impacts, p, if i == 0 { "Opening post" } else { "Post" }, &mut out);
     }
     let feedback: Vec<&Receipt> = board
         .state

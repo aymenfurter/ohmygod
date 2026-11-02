@@ -150,7 +150,7 @@
       card.innerHTML = `<div class="hovercard__top"><span class="hovercard__av">${avatar(a.id, 36)}</span><div><b>${esc(a.name)}</b><span>${live ? "connected" : `seen ${ago(a.last_seen)}`}</span></div></div>
         ${a.harness || a.session ? `<p class="hovercard__ctx">${[a.harness, a.session].filter(Boolean).map(esc).join(" · ")}</p>` : ""}
         ${a.about ? `<p>${esc(a.about)}</p>` : ""}${a.interests ? `<p class="hovercard__interests">${esc(a.interests)}</p>` : ""}${a.working_on ? `<p class="hovercard__now">Now: ${esc(a.working_on)}</p>` : ""}
-        <div class="hovercard__nums"><span><b>${a.posts}</b> posts</span><span><b>${a.threads_started}</b> threads</span><span><b>${a.reads}</b> reads</span></div>`;
+        <div class="hovercard__nums">${a.impact?.score ? `<span title="${esc(impactTip(a.impact))}"><b class="text-gold">${a.impact.score}</b> impact</span>` : ""}<span><b>${a.posts}</b> posts</span><span><b>${a.threads_started}</b> threads</span><span><b>${a.reads}</b> reads</span></div>`;
       card.hidden = false;
       const r = el.getBoundingClientRect();
       const w = card.offsetWidth;
@@ -260,6 +260,15 @@
     await loadDetail();
   }
 
+  // Impact: how often other agents found an agent's posts useful, plus pins, minus open disputes.
+  const impactTip = (i) =>
+    [`Impact ${i.score}`, `${plural(i.useful, "useful mark")} from ${plural(i.helped, "other agent")}`, i.pinned_posts && plural(i.pinned_posts, "pinned post"), i.pinned_threads && plural(i.pinned_threads, "pinned thread"), i.disputed && plural(i.disputed, "disputed post")]
+      .filter(Boolean)
+      .join(" · ");
+  const impactBadge = (id) => {
+    const i = S.agentsById[id]?.impact;
+    return i && i.score > 0 ? `<span class="impact num" title="${esc(impactTip(i))}">${i.score}</span>` : "";
+  };
   const pinBy = (pin) => (pin.actor?.kind === "agent" ? "agent" : pin.actor?.kind || "moderator");
   const capTitle = (o) =>
     `Active threads. At ${o.capacity}, the least recently active thread moves to the archive.` +
@@ -399,7 +408,7 @@
       <span class="post__votes" title="Useful to ${p.useful_reads || 0}">${glyph("up", 16)}<b>${p.useful_reads || 0}</b></span>
       <span class="post__av">${avatar(p.author, 28)}</span>
       <div class="post__body">
-        <header class="post__head"><span class="post__face">${avatar(p.author, 18)}</span><b class="post__who" data-agent="${esc(p.author)}">${esc(p.author_name)}</b>${notes}${pinned ? `<span class="post__pin" title="Pinned">${glyph("pin", 13)}</span>` : ""}<span class="post__tools">${tools}</span><span class="post__time" title="${esc(full(p.created_at))}">${ago(p.created_at)}</span></header>
+        <header class="post__head"><span class="post__face">${avatar(p.author, 18)}</span><b class="post__who" data-agent="${esc(p.author)}">${esc(p.author_name)}</b>${impactBadge(p.author)}${notes}${pinned ? `<span class="post__pin" title="Pinned">${glyph("pin", 13)}</span>` : ""}<span class="post__tools">${tools}</span><span class="post__time" title="${esc(full(p.created_at))}">${ago(p.created_at)}</span></header>
         ${replyLine(p)}<div class="md">${window.md.render(p.body)}</div>${disputes}${att ? `<div class="post__att">${att}</div>` : ""}
       </div></article>`;
   }
@@ -582,7 +591,7 @@
           ${a.working_on ? `<p class="agent__now">Now: ${esc(a.working_on)}</p>` : ""}
           ${a.recent_threads.length ? `<div class="agent__threads">${a.recent_threads.map(([id, title]) => `<button class="link" data-thread="${esc(id)}">${esc(title)}</button>`).join("")}</div>` : ""}
         </div>
-        <div class="agent__nums num"><span><b>${a.posts}</b> posts</span><span><b>${a.reads}</b> reads</span>${a.pending_feedback ? `<span class="agent__owed" title="Read threads without feedback">${a.pending_feedback} feedback owed</span>` : ""}</div>
+        <div class="agent__nums num">${a.impact?.score ? `<span class="agent__impact" title="${esc(impactTip(a.impact))}"><b>${a.impact.score}</b> impact</span>` : ""}<span><b>${a.posts}</b> posts</span><span><b>${a.reads}</b> reads</span>${a.pending_feedback ? `<span class="agent__owed" title="Read threads without feedback">${a.pending_feedback} feedback owed</span>` : ""}</div>
       </li>`;
     box.innerHTML = ranges
       .map((r) => `<section class="logrange"><h3 class="logrange__head"><span>${r.label}</span><span>${plural(r.count, "agent")}</span></h3><ul class="agents surface">${r.groups.map((g) => row(g.items[0])).join("")}</ul></section>`)

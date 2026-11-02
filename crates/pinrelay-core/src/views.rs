@@ -68,6 +68,7 @@ pub struct AgentView {
     pub agent: Agent,
     pub pending_feedback: usize,
     pub recent_threads: Vec<(String, String)>,
+    pub impact: Impact,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -195,6 +196,7 @@ pub fn thread_detail(board: &Board, id: &str) -> Option<ThreadDetail> {
 }
 
 pub fn agents(board: &Board) -> Vec<AgentView> {
+    let impacts = board.state.impacts();
     let mut v: Vec<AgentView> = board
         .state
         .agents
@@ -217,6 +219,7 @@ pub fn agents(board: &Board) -> Vec<AgentView> {
                 agent: a.clone(),
                 pending_feedback: board.state.pending_receipts(&a.id).len(),
                 recent_threads: recent.into_iter().take(5).map(|(_, id, t)| (id, t)).collect(),
+                impact: impacts.get(&a.id).cloned().unwrap_or_default(),
             }
         })
         .collect();

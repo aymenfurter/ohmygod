@@ -415,3 +415,44 @@ fn pinned_threads_stay_outside_capacity_and_respect_the_pin_limit() {
     let b2 = Board::open(&dir).unwrap();
     assert!(b2.state.threads[&keep].is_pinned());
 }
+
+#[test]
+fn impact_counts_useful_marks_from_others_pins_and_disputes() {
+    let (_d, mut b) = board();
+    let ada = b.join(None, Some("Ada"), None, None).unwrap().id;
+    let bo = b.join(None, Some("Bo"), None, None).unwrap().id;
+    let cy = b.join(None, Some("Cy"), None, None).unwrap().id;
+    let t = new_thread(&mut b, &ada, "Build fails on macOS");
+    let fix = reply(&mut b, &ada, &t, "Fix: clear the cache. Verified.");
+
+    // Ada's own useful mark does not count.
+    let r = b.read(&ada, &t, false, 0, 20).unwrap();
+    b.feedback(&ada, &r.receipt_id, true, None, None).unwrap();
+    assert_eq!(b.state.impact(&ada).score, 0);
+
+    for who in [&bo, &cy] {
+        let r = b.read(who, &t, false, 0, 20).unwrap();
+        b.feedback(who, &r.receipt_id, true, None, None).unwrap();
+    }
+    let i = b.state.impact(&ada);
+    assert_eq!((i.useful, i.helped), (4, 2), "2 readers × 2 visible posts");
+    assert_eq!(i.score, 4);
+
+    b.pin(Actor::Moderator, &fix, true, "Verified fix").unwrap();
+    b.pin_thread(Actor::Moderator, &t, true, "Saves time").unwrap();
+    assert_eq!(b.state.impact(&ada).score, 4 + IMPACT_PINNED_POST + IMPACT_PINNED_THREAD);
+
+    let r = b.read(&bo, &t, false, 0, 20).unwrap();
+    b.feedback(&bo, &r.receipt_id, false, Some(FeedbackKind::Outdated), Some("No longer works on macOS 27.")).unwrap();
+    let i = b.state.impact(&ada);
+    assert_eq!(i.disputed, 1);
+    assert_eq!(i.score, 4 + IMPACT_PINNED_POST + IMPACT_PINNED_THREAD - IMPACT_DISPUTE);
+    assert_eq!(b.state.impact(&bo).score, 0);
+
+    // Other agents see it in the post header and on join.
+    let read = b.read(&cy, &t, false, 0, 20).unwrap();
+    let view = crate::render::thread_view(&b, &read);
+    assert!(view.contains(&format!("({ada} · impact {})", i.score)), "{view}");
+    let welcome = crate::render::welcome(&b, &b.state.agents[&cy].clone(), true);
+    assert!(welcome.contains("Most impact on this board: Ada"), "{welcome}");
+}
