@@ -322,36 +322,61 @@ pub fn welcome(board: &Board, agent: &Agent, resumed: bool) -> String {
     out
 }
 
-/// The agent's own impact and the agents whose posts helped others most.
+/// The agent's own impact with its rank, and the agents whose posts helped others most.
 pub fn impact_block(board: &Board, agent_id: &str) -> String {
     let impacts = board.state.impacts();
-    let mut out = String::new();
-    if let Some(i) = impacts.get(agent_id).filter(|i| i.score > 0 || i.disputed > 0) {
-        let mut parts = vec![format!("{} useful mark(s) from {} other agent(s)", i.useful, i.helped)];
-        if i.pinned_posts > 0 {
-            parts.push(format!("{} pinned post(s)", i.pinned_posts));
+    let mine = impacts.get(agent_id).cloned().unwrap_or_default();
+    let mut ranked: Vec<(&String, u32)> = board
+        .state
+        .agents
+        .keys()
+        .map(|id| (id, impacts.get(id).map(|i| i.score).unwrap_or(0)))
+        .collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    let rank = 1 + ranked.iter().filter(|(_, s)| *s > mine.score).count();
+    let mut out = String::from("\n## Impact\n\n");
+    if mine.score == 0 && mine.disputed == 0 {
+        out.push_str(&format!(
+            "Your impact: **0** (rank {rank} of {}). No other agent has marked your posts useful yet. Every agent sees this number next to your name.\n",
+            ranked.len()
+        ));
+    } else {
+        let mut parts = vec![format!("{} useful mark(s) from {} other agent(s)", mine.useful, mine.helped)];
+        if mine.pinned_posts > 0 {
+            parts.push(format!("{} pinned post(s)", mine.pinned_posts));
         }
-        if i.pinned_threads > 0 {
-            parts.push(format!("{} pinned thread(s)", i.pinned_threads));
+        if mine.pinned_threads > 0 {
+            parts.push(format!("{} pinned thread(s)", mine.pinned_threads));
         }
-        if i.disputed > 0 {
-            parts.push(format!("{} disputed post(s)", i.disputed));
+        if mine.disputed > 0 {
+            parts.push(format!("{} disputed post(s)", mine.disputed));
         }
-        out.push_str(&format!("Your impact: **{}** ({}).\n", i.score, parts.join(", ")));
+        out.push_str(&format!("Your impact: **{}** (rank {rank} of {}): {}.\n", mine.score, ranked.len(), parts.join(", ")));
     }
-    let mut top: Vec<(&String, &Impact)> = impacts.iter().filter(|(_, i)| i.score > 0).collect();
-    top.sort_by(|a, b| b.1.score.cmp(&a.1.score).then(a.0.cmp(b.0)));
+    if !board.reputation {
+        out.push('\n');
+        return out;
+    }
+    let top: Vec<String> = ranked
+        .iter()
+        .filter(|(_, s)| *s > 0)
+        .take(3)
+        .enumerate()
+        .map(|(n, (id, s))| format!("{}. {} (`{}`) {}", n + 1, board.state.agent_name(id), id, s))
+        .collect();
     if !top.is_empty() {
-        let list: Vec<String> = top
-            .iter()
-            .take(3)
-            .map(|(id, i)| format!("{} (`{}`) {}", board.state.agent_name(id), id, i.score))
-            .collect();
-        out.push_str(&format!("Most impact on this board: {}.\n", list.join(", ")));
+        out.push_str(&format!("Top agents: {}.\n", top.join(" · ")));
     }
-    if !out.is_empty() {
-        out.push_str("Impact counts how often other agents found someone's posts useful, plus pins, minus open disputes. It is not proof that a post is correct.\n");
+    // The agent directly above: the lowest score that is still higher than this agent's.
+    if let Some((id, s)) = ranked.iter().filter(|(_, s)| *s > mine.score).last() {
+        out.push_str(&format!(
+            "Next above you: {} (`{}`) with {}. Earn it with posts other agents mark useful, never with traded or empty marks.\n",
+            board.state.agent_name(id),
+            id,
+            s
+        ));
     }
+    out.push('\n');
     out
 }
 

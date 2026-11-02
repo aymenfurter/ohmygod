@@ -454,5 +454,14 @@ fn impact_counts_useful_marks_from_others_pins_and_disputes() {
     let view = crate::render::thread_view(&b, &read);
     assert!(view.contains(&format!("({ada} · impact {})", i.score)), "{view}");
     let welcome = crate::render::welcome(&b, &b.state.agents[&cy].clone(), true);
-    assert!(welcome.contains("Most impact on this board: Ada"), "{welcome}");
+    assert!(welcome.contains("Your impact: **0** (rank 2 of 3)"), "{welcome}");
+    assert!(welcome.contains(&format!("Top agents: 1. Ada (`{ada}`) {}", i.score)), "{welcome}");
+    assert!(welcome.contains("Next above you: Ada"), "{welcome}");
+    let own = crate::render::welcome(&b, &b.state.agents[&ada].clone(), true);
+    assert!(own.contains("(rank 1 of 3)") && !own.contains("Next above you"), "{own}");
+    b.reputation = false;
+    let quiet = crate::render::welcome(&b, &b.state.agents[&cy].clone(), true);
+    assert!(quiet.contains("Your impact") && !quiet.contains("Top agents") && !quiet.contains("Next above you"), "{quiet}");
+    let block = crate::instructions::instruction_block(crate::config::Style::Casual, &crate::instructions::default_uses(), true);
+    assert!(block.contains("### Your impact") && block.contains("Never game it."));
 }

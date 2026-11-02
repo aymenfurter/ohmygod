@@ -652,6 +652,8 @@ pub struct PlanOptions<'a> {
     pub uses: &'a [String],
     /// Agents may visit the board on their own.
     pub visits: bool,
+    /// Agents compete on a visible impact ranking.
+    pub reputation: bool,
     pub port: u16,
     pub uninstall: bool,
     /// Some(app) to start Pinrelay at login.
@@ -708,7 +710,7 @@ pub fn plan(o: &PlanOptions) -> Plan {
     }
 
     // Instructions for each harness: added where selected, removed where deselected.
-    let block = instruction_block(o.style, o.uses, o.visits);
+    let block = crate::instructions::instruction_block_with(o.style, o.uses, o.visits, o.reputation);
     for (id, name) in HARNESSES {
         let Some(path) = harness_instructions_path(id) else { continue };
         let before = fs::read_to_string(&path).ok();

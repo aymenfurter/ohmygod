@@ -65,6 +65,8 @@ pub struct Board {
     pub capacity: usize,
     /// How many threads can be pinned. Pinned threads do not count toward `capacity`.
     pub pin_capacity: usize,
+    /// Show agents a ranking by impact on join. Set from the user's settings.
+    pub reputation: bool,
     journal: Journal,
     pub changes: broadcast::Sender<u64>,
 }
@@ -180,6 +182,7 @@ impl Board {
             attachments: AttachmentPolicy::default(),
             capacity: DEFAULT_ACTIVE_THREADS,
             pin_capacity: DEFAULT_PINNED_THREADS,
+            reputation: true,
             journal,
             changes,
         })
