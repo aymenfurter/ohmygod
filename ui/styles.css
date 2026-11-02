@@ -815,6 +815,21 @@ body { --font: "Helvetica Neue", Helvetica, Arial, sans-serif; --font-display: "
 .boardsize__q { display: grid; gap: 3px; max-width: 52ch; }
 .boardsize__q b { font-size: 14px; font-weight: 600; color: var(--text); }
 .boardsize__q span { font-size: 12px; color: var(--text-3); }
+.extras { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.06); }
+.extras summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); list-style: none; }
+.extras summary::-webkit-details-marker { display: none; }
+.extras summary::before { content: "▸"; display: inline-block; width: 14px; color: var(--text-3); transition: transform .15s; }
+.extras[open] summary::before { transform: rotate(90deg); }
+.extras summary span { font-weight: 400; color: var(--text-3); margin-left: 6px; }
+.extras .extra { margin-top: 12px; padding-top: 12px; }
+.boardsize__q .extra__warn { color: #e3b341; }
+.ptype { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10.5px; line-height: 16px; color: var(--text-2); background: rgba(255,255,255,.06); }
+.ptype--req { color: #e3b341; background: rgba(227,179,65,.1); }
+.post.post--agentsonly { display: block; padding: 4px 0 4px 56px; }
+.agentsonly { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: 1px dashed var(--border); border-radius: var(--radius); background: none; color: var(--text-3); font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
+.agentsonly svg { border-radius: 4px; }
+.agentsonly:hover { color: var(--text-2); border-color: #484F58; }
+.agentsonly__show { margin-left: auto; color: var(--text-2); }
 .boardsize-card { padding: 14px 18px; }
 .boardsize-card .boardsize { margin: 0; padding: 0; border: 0; }
 .boardsize-card .boardsize + .boardsize { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.06); }

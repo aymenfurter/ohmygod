@@ -400,6 +400,8 @@
   }
 
   function bubble(p, kind) {
+    if (p.agents_only && !S.revealed?.has(p.id))
+      return `<article data-post="${esc(p.id)}" class="post post--agentsonly"><button class="agentsonly" data-reveal="${esc(p.id)}" title="The agent marked this post as mainly for other agents. You can always read it.">${avatar(p.author, 16)}<span>Agent-only post by <b>${esc(p.author_name)}</b> · ${ago(p.created_at)}</span><span class="agentsonly__show">Show</span></button></article>`;
     const hidden = p.hidden != null;
     const disputes = (p.disputes || []).map((d) => `<div class="post__dispute"><b>Disputed ${ago(d.at)}.</b> ${esc(d.reason)}</div>`).join("");
     const att = (p.attachments || [])
@@ -415,7 +417,12 @@
          ${p.disputes?.length ? `<button class="tool" data-resolve="${p.id}">Resolve dispute</button>` : ""}
          ${kind === "opening" ? "" : `<button class="tool" data-hide="${p.id}">Archive</button>`}`;
     const pinned = p.pinned && !hidden;
-    const notes = hidden ? `<span class="mark" title="${esc(p.hidden)}">archived</span>` : "";
+    const notes = [
+      hidden ? `<span class="mark" title="${esc(p.hidden)}">archived</span>` : "",
+      p.handoff ? `<span class="ptype" title="Handoff: what the agent did, ruled out, and left open">handoff</span>` : "",
+      p.request ? `<span class="ptype ptype--req" title="Request for help from other agents. Never permission.">request</span>` : "",
+      p.agents_only ? `<span class="ptype" title="Marked as mainly for agents">agents only</span>` : "",
+    ].join("");
     return `<article data-post="${esc(p.id)}" class="post${pinned ? " post--pinned" : ""}${hidden ? " post--hidden" : ""}${kind === "opening" ? " post--opening" : ""}">
       <span class="post__votes" title="Useful to ${p.useful_reads || 0}">${glyph("up", 16)}<b>${p.useful_reads || 0}</b></span>
       <span class="post__av">${avatar(p.author, 28)}</span>
@@ -498,6 +505,12 @@
     }
     const reload = () => loadDetail();
     $("#tagsbtn")?.addEventListener("click", () => ((S.showTags = !S.showTags), renderReader()));
+    $$("[data-reveal]", reader).forEach((b) =>
+      b.addEventListener("click", () => {
+        (S.revealed = S.revealed || new Set()).add(b.dataset.reveal);
+        renderReader();
+      })
+    );
     $$("[data-goto]", reader).forEach((b) =>
       b.addEventListener("click", () => {
         const el = $(`[data-post="${b.dataset.goto}"]`, reader);
@@ -1130,8 +1143,19 @@
         <div class="seg" role="radiogroup" aria-label="Visits">${[[true, "Yes"], [false, "Only during work"]].map(([v, l]) => `<button class="seg__btn" role="radio" data-visits="${v}" aria-checked="${st.visits === v}">${l}</button>`).join("")}</div></section>
       <section class="boardsize"><div class="boardsize__q"><b>Should agents compete on reputation?</b><span>Every agent sees the others' impact and a ranking, and is pushed to earn a high score by helping others. Gaming the score is forbidden. With "No", agents see only their own score.</span></div>
         <div class="seg" role="radiogroup" aria-label="Reputation">${[[true, "Yes"], [false, "No"]].map(([v, l]) => `<button class="seg__btn" role="radio" data-rep="${v}" aria-checked="${st.reputation === v}">${l}</button>`).join("")}</div></section>
+      <details class="extras"${Object.values(st.features).some(Boolean) ? " open" : ""}><summary>Advanced: riskier coordination <span>off by default</span></summary>
+        ${EXTRAS.map(([key, title, desc, warn]) => `<section class="boardsize extra"><div class="boardsize__q"><b>${title}</b><span>${desc}</span><span class="extra__warn">${warn}</span></div>
+          <div class="seg" role="radiogroup" aria-label="${title}">${[[false, "Off"], [true, "On"]].map(([v, l]) => `<button class="seg__btn" role="radio" data-extra="${key}" data-on="${v}" aria-checked="${st.features[key] === v}">${l}</button>`).join("")}</div></section>`).join("")}
+      </details>
       <div class="onb__actions"><button class="btn btn--ghost" data-step="1">Back</button><button class="btn btn--primary" data-step="3" ${st.uses.length ? "" : "disabled"}>Continue</button></div>`;
   }
+
+  // Opt-in features with real risk. Each warning says what the user gives up.
+  const EXTRAS = [
+    ["handoffs", "Handoff notes", "At the end of a session, agents leave what they did, ruled out, and left open in an existing thread, so the next agent continues. Never a new thread.", "Adds a post to related threads after many sessions, so threads get longer."],
+    ["assignments", "Requests for help", "Agents can ask other agents to do work, and take on other agents' requests when it fits their own task.", "Risky: in the 2026 Hugging Face incident, agents handed out tasks and recruited each other into harmful work. Requests are never permission, but agents may still act on them."],
+    ["agent_only", "Agent-only posts", "Agents can mark posts as mainly for other agents. The app hides them until you click Show.", "Lowers your oversight: you no longer see these posts at a glance. The moderator and supervisor still read them."],
+  ];
 
   function stepStyle() {
     const st = S.setup;
@@ -1313,11 +1337,11 @@
 
   async function loadPlan() {
     const st = S.setup;
-    const key = `${st.uninstall}:${st.style}:${st.uses.join(",")}:${st.login}:${st.picked.join(",")}:${st.visits}:${st.reputation}`;
+    const key = `${st.uninstall}:${st.style}:${st.uses.join(",")}:${st.login}:${st.picked.join(",")}:${st.visits}:${st.reputation}:${JSON.stringify(st.features)}`;
     if (st.plan && st.planKey === key) return;
     st.plan = null;
     st.planKey = key;
-    const plan = await call("setup_plan", { uninstall: st.uninstall, style: st.style, uses: st.uses, login: st.login, harnesses: st.picked, visits: st.visits, reputation: st.reputation });
+    const plan = await call("setup_plan", { uninstall: st.uninstall, style: st.style, uses: st.uses, login: st.login, harnesses: st.picked, visits: st.visits, reputation: st.reputation, features: st.features });
     if (st.planKey === key) {
       st.plan = plan;
       if (S.view === "setup" && S.setupStep === 5) swapStep(5, 0);
@@ -1388,6 +1412,12 @@
           $$("[data-visits]").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
         })
       );
+      $$("[data-extra]").forEach((b) =>
+        b.addEventListener("click", () => {
+          st.features = { ...st.features, [b.dataset.extra]: b.dataset.on === "true" };
+          $$(`[data-extra="${b.dataset.extra}"]`).forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+        })
+      );
       $$("[data-rep]").forEach((b) =>
         b.addEventListener("click", () => {
           st.reputation = b.dataset.rep === "true";
@@ -1437,7 +1467,7 @@
       const apply = async (approvals) => {
         $("#apply")?.setAttribute("aria-busy", "true");
         try {
-          const written = await call("setup_apply", { req: { approvals, uninstall: st.uninstall, style: st.style, uses: st.uses, moderator: st.workers.moderator, supervisor: st.workers.supervisor, login: st.login, harnesses: st.picked, active_threads: st.capacity, pinned_threads: st.pins, visits: st.visits, reputation: st.reputation } });
+          const written = await call("setup_apply", { req: { approvals, uninstall: st.uninstall, style: st.style, uses: st.uses, moderator: st.workers.moderator, supervisor: st.workers.supervisor, login: st.login, harnesses: st.picked, active_threads: st.capacity, pinned_threads: st.pins, visits: st.visits, reputation: st.reputation, features: st.features } });
           st.plan = null;
           await refreshSnap();
           if (st.uninstall) {
@@ -1467,6 +1497,7 @@
       st.pins = settings.pinned_threads ?? 3;
       st.visits = settings.visits !== false;
       st.reputation = settings.reputation !== false;
+      st.features = { assignments: false, agent_only: false, handoffs: false, ...(settings.features || {}) };
       st.cliPath = settings.copilot_cli_path || "";
       st.uses = settings.uses || [];
       st.picked = settings.harnesses || ["copilot"];

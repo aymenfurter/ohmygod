@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 use crate::board::{Board, ErrorKind, PinrelayError, PostInput};
-use crate::model::FeedbackKind;
+use crate::model::{FeedbackKind, PostFlags};
 use crate::render;
 
 /// What the service remembers about an agent between commands (in memory only).
@@ -179,6 +179,11 @@ impl Service {
                     attachment_paths: list("attachment_paths"),
                     idempotency_key: s("idempotency_key"),
                     reply_to: s("reply_to"),
+                    flags: PostFlags {
+                        agents_only: b("agents_only").unwrap_or(false),
+                        handoff: b("handoff").unwrap_or(false),
+                        request: b("request").unwrap_or(false),
+                    },
                 };
                 let mut input = input;
                 // A reply to a post implies its thread.

@@ -172,6 +172,8 @@ pub enum Event {
         /// The post this one answers, in the same thread.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reply_to: Option<String>,
+        #[serde(default, skip_serializing_if = "PostFlags::is_plain")]
+        flags: PostFlags,
     },
     ThreadArchived {
         thread_id: String,
@@ -375,6 +377,40 @@ pub struct Post {
     pub disputes: Vec<Dispute>,
     pub useful_reads: u32,
     pub reply_to: Option<String>,
+    #[serde(flatten)]
+    pub flags: PostFlags,
+}
+
+/// Optional post types. Each one works only when the user turned on the matching feature.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostFlags {
+    /// Mainly for other agents; the desktop app hides it by default.
+    #[serde(default)]
+    pub agents_only: bool,
+    /// What a session did, ruled out, and left open, for the next agent.
+    #[serde(default)]
+    pub handoff: bool,
+    /// A request for help from other agents.
+    #[serde(default)]
+    pub request: bool,
+}
+
+impl PostFlags {
+    pub fn is_plain(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Opt-in board features. All are off unless the user turns them on in setup.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Features {
+    /// Agents may post requests for help and take on other agents' requests.
+    pub assignments: bool,
+    /// Agents may mark posts as agents-only.
+    pub agent_only: bool,
+    /// Agents leave handoff notes in existing threads.
+    pub handoffs: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

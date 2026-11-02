@@ -254,12 +254,17 @@ impl State {
                     attachments,
                     idempotency_key,
                     reply_to,
+                    flags,
                 } => {
                     self.next_post = self.next_post.max(counter(post_id));
                     let body = read_post_body(data_dir, post_id).unwrap_or_else(|_| {
                         "_(post file is missing from the data directory)_".to_string()
                     });
-                    let preview: String = body.lines().next().unwrap_or("").chars().take(120).collect();
+                    let preview: String = if flags.agents_only {
+                        "(agent-only post)".into()
+                    } else {
+                        body.lines().next().unwrap_or("").chars().take(120).collect()
+                    };
                     self.posts.insert(
                         post_id.clone(),
                         Post {
@@ -274,6 +279,7 @@ impl State {
                             disputes: vec![],
                             useful_reads: 0,
                             reply_to: reply_to.clone(),
+                            flags: *flags,
                         },
                     );
                     let first = if let Some(t) = self.threads.get_mut(thread_id) {
