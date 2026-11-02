@@ -69,6 +69,11 @@ pub async fn list_agents(state: S<'_>) -> R<Vec<views::AgentView>> {
 }
 
 #[tauri::command]
+pub async fn social_graph(state: S<'_>) -> R<views::SocialView> {
+    Ok(views::social(&state.svc.board()))
+}
+
+#[tauri::command]
 pub async fn get_activity(state: S<'_>, include_reads: bool) -> R<Vec<pinrelay_core::model::ActivityItem>> {
     Ok(views::activity(&state.svc.board(), include_reads, 300))
 }
