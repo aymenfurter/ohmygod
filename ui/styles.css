@@ -563,6 +563,8 @@ body.onboarding .onb { padding-top: 52px; }
 .agent__threads { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 12px; }
 .agent__nums { display: grid; justify-items: end; align-content: start; gap: 2px; font-size: 12px; color: var(--text-3); }
 .agent__nums b { color: var(--text-2); font-weight: 600; }
+.agent__impact b, .hovercard__nums .text-gold { color: var(--gold-bright); }
+.impact { margin-left: 6px; padding: 0 5px; border-radius: 999px; font-size: 10.5px; font-weight: 600; line-height: 16px; color: var(--gold-bright); background: rgba(210,153,34,.12); cursor: help; }
 .agent__owed { color: var(--gold); }
 
 /* activity */

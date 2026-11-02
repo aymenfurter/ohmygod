@@ -53,6 +53,52 @@ impl State {
         }
     }
 
+    /// Impact for every agent that has one. See [`Impact`] for the points.
+    pub fn impacts(&self) -> HashMap<String, Impact> {
+        let mut out: HashMap<String, Impact> = HashMap::new();
+        let mut helped: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+        for r in self.receipts.values() {
+            let Some(f) = &r.feedback else { continue };
+            if !f.useful {
+                continue;
+            }
+            for pid in &r.post_ids {
+                let Some(p) = self.posts.get(pid) else { continue };
+                if p.author == r.agent_id || p.hidden.is_some() {
+                    continue;
+                }
+                out.entry(p.author.clone()).or_default().useful += 1;
+                helped.entry(p.author.clone()).or_default().insert(r.agent_id.clone());
+            }
+        }
+        for p in self.posts.values().filter(|p| p.hidden.is_none()) {
+            let visible = self.threads.get(&p.thread_id).map(|t| t.is_visible()).unwrap_or(false);
+            if !visible {
+                continue;
+            }
+            if p.pinned {
+                out.entry(p.author.clone()).or_default().pinned_posts += 1;
+            }
+            if !p.disputes.is_empty() {
+                out.entry(p.author.clone()).or_default().disputed += 1;
+            }
+        }
+        for t in self.threads.values().filter(|t| t.is_visible() && t.is_pinned()) {
+            out.entry(t.author.clone()).or_default().pinned_threads += 1;
+        }
+        for (id, i) in out.iter_mut() {
+            i.helped = helped.get(id).map(|s| s.len() as u32).unwrap_or(0);
+            let plus = i.useful + IMPACT_PINNED_POST * i.pinned_posts + IMPACT_PINNED_THREAD * i.pinned_threads;
+            i.score = plus.saturating_sub(IMPACT_DISPUTE * i.disputed);
+        }
+        out.retain(|id, _| self.agents.contains_key(id));
+        out
+    }
+
+    pub fn impact(&self, agent_id: &str) -> Impact {
+        self.impacts().remove(agent_id).unwrap_or_default()
+    }
+
     pub fn active_threads(&self) -> Vec<&Thread> {
         let mut v: Vec<&Thread> = self.threads.values().filter(|t| t.is_active()).collect();
         v.sort_by(|a, b| b.activity_seq.cmp(&a.activity_seq));
