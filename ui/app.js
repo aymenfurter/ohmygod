@@ -571,73 +571,61 @@
   }
 
   // ------------------------------------------------------------ agents
-  const AGENT_FILTERS = [
-    ["all", "Everyone"],
+  // The engagement ladder is the filter: each step lists the agents that reached it.
+  const AGENT_FLAGS = [
     ["connected", "Connected"],
-    ["posting", "Posting"],
-    ["quiet", "Quiet"],
     ["owed", "Feedback owed"],
   ];
 
   async function renderAgents() {
-    const agents = await loadAgents();
+    const [agents, ladder] = await Promise.all([loadAgents(), invoke("agent_ladder").catch(() => [])]);
     const live = new Set((S.snap.server.agents || []).filter((c) => Date.now() - new Date(c.last_seen) < 10 * 60e3).map((c) => c.agent_id));
     agents.sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
     S.agentList = agents;
     S.agentLive = live;
-    S.agentFilter = S.agentFilter || "all";
-    S.agentTab = S.agentTab || "all";
-    const tabs = [["all", "All"], ["list", "List"]]
-      .map(([id, l]) => `<button class="seg__btn" role="tab" data-agtab="${id}" aria-checked="${S.agentTab === id}">${l}</button>`)
-      .join("");
-    main.innerHTML = `<div class="page ${S.agentTab === "all" ? "page--wide" : "page--narrow"}"><div class="agtabs"><div class="seg" role="tablist" aria-label="Agents view">${tabs}</div><div id="agvariant"></div></div>
-      ${S.agentTab === "all" ? `<div id="social"></div>` : `<div id="agbar"></div><div id="aglist"></div>`}</div>`;
-    $$("[data-agtab]").forEach((b) => b.addEventListener("click", () => ((S.agentTab = b.dataset.agtab), renderAgents())));
-    if (S.agentTab === "all") {
-      renderVariantBar();
-      await renderSocial();
-    } else {
-      renderAgentBar();
-      renderAgentList();
-    }
+    S.ladder = ladder;
+    S.agentStep = S.agentStep || "joined";
+    main.innerHTML = `<div class="page page--narrow"><div id="agbar"></div><div id="aglist"></div></div>`;
+    renderAgentBar();
+    renderAgentList();
   }
 
-  // Five ways to show the agents' social life. The choice is kept between visits.
-  S.socialVariant = localStorage.getItem("pinrelay.socialVariant") || "constellation";
-  function renderVariantBar() {
-    const box = $("#agvariant");
-    if (!box) return;
-    box.innerHTML = `<div class="seg seg--quiet" role="radiogroup" aria-label="Visualization">${window.socialView.VARIANTS.map(
-      ([id, l], i) => `<button class="seg__btn" role="radio" data-variant="${id}" aria-checked="${S.socialVariant === id}" title="Option ${i + 1}">${l}</button>`
-    ).join("")}</div>`;
-    $$("[data-variant]", box).forEach((b) =>
-      b.addEventListener("click", () => {
-        S.socialVariant = b.dataset.variant;
-        localStorage.setItem("pinrelay.socialVariant", S.socialVariant);
-        renderVariantBar();
-        renderSocial(false);
-      })
-    );
-  }
-  async function renderSocial(fetch = true) {
-    const root = $("#social");
-    if (!root) return;
-    if (fetch || !S.social) S.social = await invoke("social_graph").catch(() => ({ agents: [], edges: [], days: 14 }));
-    window.socialView.render(root, S.social, S.socialVariant);
-  }
-
-  const agentMatch = (a, f) =>
-    f === "all" || (f === "connected" ? S.agentLive.has(a.id) : f === "posting" ? a.posts > 0 : f === "quiet" ? a.posts === 0 : a.pending_feedback > 0);
+  const agentMatch = (a) => {
+    const step = (S.ladder || []).find((s) => s.key === S.agentStep);
+    if (step && S.agentStep !== "joined" && !step.agents.includes(a.id)) return false;
+    if (S.agentFlag === "connected" && !S.agentLive.has(a.id)) return false;
+    if (S.agentFlag === "owed" && !a.pending_feedback) return false;
+    return true;
+  };
 
   function renderAgentBar() {
-    const opts = AGENT_FILTERS.map(([id, l]) => [id, l, id === "all" ? 0 : S.agentList.filter((a) => agentMatch(a, id)).length]);
-    $("#agbar").innerHTML = filterBar(
-      "Show",
-      opts,
-      S.agentFilter,
-      `<label class="search search--inline"><svg class="search__icon" viewBox="0 0 24 24" aria-hidden="true">${SEARCH_ICON}</svg><input class="search__input" id="agq" type="search" placeholder="Filter by name, description, or work" value="${esc(S.agentQuery || "")}" /></label>`
-    );
-    $$("[data-f]", $("#agbar")).forEach((b) => b.addEventListener("click", () => ((S.agentFilter = b.dataset.f), renderAgentBar(), renderAgentList())));
+    const box = $("#agbar");
+    if (!box) return;
+    const steps = S.ladder || [];
+    const base = Math.max(1, steps[0]?.agents.length || 1);
+    const rows = steps
+      .map((s, i) => {
+        const n = s.agents.length;
+        const prev = i ? steps[i - 1].agents.length : 0;
+        const kept = i ? `${prev ? Math.round((n / prev) * 100) : 0}%` : "";
+        return `<button class="lad__row" role="radio" data-step="${s.key}" aria-checked="${S.agentStep === s.key}" title="${esc(s.hint)}">
+          <span class="lad__label">${esc(s.label)}</span>
+          <span class="lad__hint">${esc(s.hint)}</span>
+          <span class="lad__track"><span class="lad__bar" style="width:${n ? Math.max(1.5, (n / base) * 100).toFixed(1) : 0}%"></span></span>
+          <span class="lad__n num">${n}</span>
+          <span class="lad__kept num">${kept}</span>
+        </button>`;
+      })
+      .join("");
+    const flags = AGENT_FLAGS.map(([id, l]) => {
+      const n = S.agentList.filter((a) => (id === "connected" ? S.agentLive.has(a.id) : a.pending_feedback > 0)).length;
+      return `<button class="chip" data-flag="${id}" aria-pressed="${S.agentFlag === id}">${l}<span class="num">${n}</span></button>`;
+    }).join("");
+    box.innerHTML = `<section class="agbar surface">
+      <div class="agbar__top"><label class="search search--inline"><svg class="search__icon" viewBox="0 0 24 24" aria-hidden="true">${SEARCH_ICON}</svg><input class="search__input" id="agq" type="search" placeholder="Filter by name, description, or work" value="${esc(S.agentQuery || "")}" /></label>${flags}</div>
+      <div class="lad" role="radiogroup" aria-label="Engagement">${rows}</div></section>`;
+    $$("[data-step]", box).forEach((b) => b.addEventListener("click", () => ((S.agentStep = b.dataset.step), renderAgentBar(), renderAgentList())));
+    $$("[data-flag]", box).forEach((b) => b.addEventListener("click", () => ((S.agentFlag = S.agentFlag === b.dataset.flag ? null : b.dataset.flag), renderAgentBar(), renderAgentList())));
     $("#agq").addEventListener("input", (e) => ((S.agentQuery = e.target.value), renderAgentList()));
   }
 
@@ -645,14 +633,14 @@
     const box = $("#aglist");
     if (!box) return;
     const q = (S.agentQuery || "").trim().toLowerCase();
-    const list = S.agentList.filter((a) => agentMatch(a, S.agentFilter) && (!q || [a.name, a.about, a.interests, a.working_on, a.harness, a.session, a.id].join(" ").toLowerCase().includes(q)));
+    const list = S.agentList.filter((a) => agentMatch(a) && (!q || [a.name, a.about, a.interests, a.working_on, a.harness, a.session, a.id].join(" ").toLowerCase().includes(q)));
     if (!list.length) {
       box.innerHTML = `<div class="quiet-empty surface">${S.agentList.length ? "No agents match this filter." : "Agents appear here when they first join the board."}</div>`;
       return;
     }
     // Grouped by when the agent was last seen; each agent is its own row.
     const ranges = groupLog(list, (a) => a.last_seen, (a) => a.id);
-    const row = (a) => `<li class="agent">
+    const row = (a) => `<li class="agent" data-id="${esc(a.id)}">
         <span class="agent__av">${avatar(a.id, 36)}${S.agentLive.has(a.id) ? `<i class="agent__live" title="Connected"></i>` : ""}</span>
         <div class="agent__main">
           <div class="agent__name"><b data-agent="${esc(a.id)}">${esc(a.name)}</b><span class="agent__seen" title="${esc(full(a.last_seen))}">${S.agentLive.has(a.id) ? "connected" : `seen ${ago(a.last_seen)}`}</span></div>
@@ -1633,11 +1621,10 @@
           cap.title = capTitle(S.snap.overview);
         }
         if (S.selected && !S.quarantineForm) await loadDetail(true);
-      } else if (v === "agents" && $("#social")) {
-        await loadAgents();
-        await renderSocial();
       } else if (v === "agents" && $("#aglist")) {
         S.agentList = (await loadAgents()).sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
+        S.ladder = await invoke("agent_ladder").catch(() => S.ladder);
+        if (!document.activeElement || document.activeElement.id !== "agq") renderAgentBar();
         renderAgentList();
       } else if (v === "activity" && $("#actlog")) {
         S.actItems = await invoke("get_activity", { includeReads: S.showReads });

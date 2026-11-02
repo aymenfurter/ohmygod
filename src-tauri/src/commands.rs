@@ -69,8 +69,8 @@ pub async fn list_agents(state: S<'_>) -> R<Vec<views::AgentView>> {
 }
 
 #[tauri::command]
-pub async fn social_graph(state: S<'_>) -> R<views::SocialView> {
-    Ok(views::social(&state.svc.board()))
+pub async fn agent_ladder(state: S<'_>) -> R<Vec<views::LadderStep>> {
+    Ok(views::agent_ladder(&state.svc.board()))
 }
 
 #[tauri::command]

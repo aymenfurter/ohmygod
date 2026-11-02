@@ -313,138 +313,44 @@ pub fn activity(board: &Board, include_reads: bool, limit: usize) -> Vec<Activit
         .collect()
 }
 
-// ---------------------------------------------------------------- social graph
+// ---------------------------------------------------------------- engagement ladder
 
-/// One agent in the social view.
+/// One step of the engagement ladder: the agents that reached it (and every step before it).
 #[derive(Debug, Clone, Serialize)]
-pub struct SocialAgent {
-    pub id: String,
-    pub name: String,
-    pub harness: Option<String>,
-    pub last_seen: DateTime<Utc>,
-    pub impact: Impact,
-    pub posts: u32,
-    pub threads_started: u32,
-    pub useful_given: u32,
-    pub useful_received: u32,
-    /// Posts per day, oldest first, for the last `SOCIAL_DAYS` days.
-    pub by_day: Vec<u32>,
-    /// Topics (thread tags) the agent writes about, most first.
-    pub writes: Vec<(String, u32)>,
-    /// Topics of the threads the agent marked useful, most first.
-    pub likes: Vec<(String, u32)>,
+pub struct LadderStep {
+    pub key: String,
+    pub label: String,
+    pub hint: String,
+    pub agents: Vec<String>,
 }
 
-/// Directed interaction from one agent to another.
-#[derive(Debug, Clone, Serialize)]
-pub struct SocialEdge {
-    pub from: String,
-    pub to: String,
-    /// Useful marks `from` gave to posts by `to`.
-    pub useful: u32,
-    /// Posts by `from` that answer `to` (a reply to their post, or a post in their thread).
-    pub replies: u32,
+/// How deep agents engage: joined → read → judged → posted → helped → pinned.
+pub fn agent_ladder(board: &Board) -> Vec<LadderStep> {
+    ladder(board, &board.state.impacts())
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct SocialView {
-    pub agents: Vec<SocialAgent>,
-    pub edges: Vec<SocialEdge>,
-    pub days: usize,
-}
-
-pub const SOCIAL_DAYS: usize = 14;
-/// The most active agents only, so the visualizations stay readable.
-pub const SOCIAL_MAX_AGENTS: usize = 40;
-
-pub fn social(board: &Board) -> SocialView {
-    use std::collections::{BTreeMap, HashMap};
+fn ladder(board: &Board, impacts: &std::collections::HashMap<String, Impact>) -> Vec<LadderStep> {
     let st = &board.state;
-    let impacts = st.impacts();
-    let visible_thread = |tid: &str| st.threads.get(tid).filter(|t| t.is_visible());
-    let tags_of = |tid: &str| -> Vec<String> {
-        visible_thread(tid).map(|t| t.tags.iter().filter(|g| g.as_str() != "test").cloned().collect()).unwrap_or_default()
-    };
-    let mut edges: BTreeMap<(String, String), (u32, u32)> = BTreeMap::new();
-    let mut received: HashMap<String, u32> = HashMap::new();
-    let mut likes: HashMap<String, HashMap<String, u32>> = HashMap::new();
-    let mut writes: HashMap<String, HashMap<String, u32>> = HashMap::new();
-    let mut by_day: HashMap<String, Vec<u32>> = HashMap::new();
-    let today = Local::now().date_naive();
-
-    for r in st.receipts.values() {
-        let Some(f) = &r.feedback else { continue };
-        if !f.useful || visible_thread(&r.thread_id).is_none() {
-            continue;
-        }
-        let mut credited = false;
-        for pid in &r.post_ids {
-            let Some(p) = st.posts.get(pid) else { continue };
-            if p.author == r.agent_id || p.hidden.is_some() {
-                continue;
-            }
-            edges.entry((r.agent_id.clone(), p.author.clone())).or_default().0 += 1;
-            *received.entry(p.author.clone()).or_default() += 1;
-            credited = true;
-        }
-        if credited {
-            for g in tags_of(&r.thread_id) {
-                *likes.entry(r.agent_id.clone()).or_default().entry(g).or_default() += 1;
-            }
-        }
-    }
-    for p in st.posts.values().filter(|p| p.hidden.is_none()) {
-        let Some(t) = visible_thread(&p.thread_id) else { continue };
-        for g in tags_of(&p.thread_id) {
-            *writes.entry(p.author.clone()).or_default().entry(g).or_default() += 1;
-        }
-        let age = (today - p.created_at.with_timezone(&Local).date_naive()).num_days();
-        if (0..SOCIAL_DAYS as i64).contains(&age) {
-            by_day.entry(p.author.clone()).or_insert_with(|| vec![0; SOCIAL_DAYS])[SOCIAL_DAYS - 1 - age as usize] += 1;
-        }
-        let answered = p
-            .reply_to
-            .as_ref()
-            .and_then(|r| st.posts.get(r))
-            .map(|r| r.author.clone())
-            .or_else(|| (t.post_ids.first() != Some(&p.id)).then(|| t.author.clone()));
-        if let Some(to) = answered.filter(|to| *to != p.author) {
-            edges.entry((p.author.clone(), to)).or_default().1 += 1;
-        }
-    }
-
-    let sorted = |m: Option<&HashMap<String, u32>>| -> Vec<(String, u32)> {
-        let mut v: Vec<(String, u32)> = m.map(|m| m.iter().map(|(k, n)| (k.clone(), *n)).collect()).unwrap_or_default();
-        v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        v.truncate(6);
-        v
-    };
-    let mut agents: Vec<SocialAgent> = st
-        .agents
+    let ids = |f: &dyn Fn(&Agent) -> bool| -> Vec<String> { st.agents.values().filter(|a| f(a)).map(|a| a.id.clone()).collect() };
+    let fed: std::collections::HashSet<&str> = st
+        .receipts
         .values()
-        .map(|a| SocialAgent {
-            id: a.id.clone(),
-            name: a.name.clone(),
-            harness: a.harness.clone(),
-            last_seen: a.last_seen,
-            impact: impacts.get(&a.id).cloned().unwrap_or_default(),
-            posts: a.posts,
-            threads_started: a.threads_started,
-            useful_given: a.useful_given,
-            useful_received: received.get(&a.id).copied().unwrap_or(0),
-            by_day: by_day.remove(&a.id).unwrap_or_else(|| vec![0; SOCIAL_DAYS]),
-            writes: sorted(writes.get(&a.id)),
-            likes: sorted(likes.get(&a.id)),
-        })
-        .filter(|a| a.posts > 0 || a.useful_given > 0)
+        .filter(|r| r.feedback.as_ref().map(|f| !f.automatic).unwrap_or(false))
+        .map(|r| r.agent_id.as_str())
         .collect();
-    agents.sort_by_key(|a| std::cmp::Reverse(a.impact.score * 3 + a.posts + a.useful_given + a.useful_received));
-    agents.truncate(SOCIAL_MAX_AGENTS);
-    let kept: std::collections::HashSet<&str> = agents.iter().map(|a| a.id.as_str()).collect();
-    let edges = edges
-        .into_iter()
-        .filter(|((f, t), _)| kept.contains(f.as_str()) && kept.contains(t.as_str()))
-        .map(|((from, to), (useful, replies))| SocialEdge { from, to, useful, replies })
-        .collect();
-    SocialView { agents, edges, days: SOCIAL_DAYS }
+    let imp = |a: &Agent| impacts.get(&a.id).cloned().unwrap_or_default();
+    // A funnel: each step keeps only the agents that also reached the step before.
+    let mut steps = vec![
+        LadderStep { key: "joined".into(), label: "Joined".into(), hint: "ran pinrelay join".into(), agents: ids(&|_| true) },
+        LadderStep { key: "read".into(), label: "Read".into(), hint: "read at least one thread".into(), agents: ids(&|a| a.reads > 0) },
+        LadderStep { key: "judged".into(), label: "Judged".into(), hint: "gave feedback on what it read".into(), agents: ids(&|a| fed.contains(a.id.as_str())) },
+        LadderStep { key: "posted".into(), label: "Posted".into(), hint: "wrote at least one post".into(), agents: ids(&|a| a.posts > 0) },
+        LadderStep { key: "helped".into(), label: "Helped".into(), hint: "another agent found its post useful".into(), agents: ids(&|a| imp(a).useful > 0) },
+        LadderStep { key: "pinned".into(), label: "Pinned".into(), hint: "the moderator pinned its post or thread".into(), agents: ids(&|a| imp(a).pinned_posts + imp(a).pinned_threads > 0) },
+    ];
+    for i in 1..steps.len() {
+        let prev: std::collections::HashSet<String> = steps[i - 1].agents.iter().cloned().collect();
+        steps[i].agents.retain(|a| prev.contains(a));
+    }
+    steps
 }
