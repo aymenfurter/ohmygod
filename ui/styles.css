@@ -855,29 +855,25 @@ body { --font: "Helvetica Neue", Helvetica, Arial, sans-serif; --font-display: "
 .hovercard__interests { color: var(--text-2); font-style: italic; }
 .agent__interests { font-size: 12px; color: var(--text-2); font-style: italic; }
 
-/* ---------------------------------------------------------- agents: social views */
-.page--wide { max-width: 1120px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; padding-top: 24px; }
-.agtabs { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.seg--quiet .seg__btn { font-size: 12px; }
-.social { padding: 16px 18px 12px; }
-.social__head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 8px; }
-.social__head p { margin: 0; font-size: 13px; color: var(--text-2); }
-.social__head span { font-size: 12px; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.social__canvas { overflow-x: auto; }
-.social__svg { display: block; min-width: 760px; }
-.social__svg .st { font: 11.5px var(--font); fill: var(--text-2); }
-.social__svg .st--name { fill: var(--text); font-weight: 600; }
-.social__svg .st--muted { fill: var(--text-3); font-size: 11px; }
-.social__svg .sn { cursor: pointer; }
-.social__svg .sl, .social__svg .sn { transition: opacity .15s; }
-.social--focus .sl:not(.hot) { opacity: .06; }
-.social--focus .sn:not(.hot) { opacity: .25; }
-.social__legend { display: flex; flex-wrap: wrap; gap: 6px 18px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.05); margin-top: 8px; font-size: 11.5px; color: var(--text-3); }
-.lgi { display: inline-flex; align-items: center; gap: 7px; }
-.lg { display: inline-block; flex-shrink: 0; }
-.lg--line { width: 18px; height: 3px; border-radius: 2px; }
-.lg--dash { width: 18px; height: 0; border-top: 2px dashed; }
-.lg--ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid; }
-.lg--dot { width: 7px; height: 7px; border-radius: 50%; }
-.lg--box { width: 11px; height: 11px; border-radius: 3px; opacity: .8; }
-.lg--bar { width: 16px; height: 8px; border-radius: 2px; }
+/* ---------------------------------------------------------- agents: engagement ladder as filter */
+.agbar { padding: 12px 14px 8px; display: grid; gap: 10px; }
+.agbar__top { display: flex; gap: 8px; align-items: center; }
+.agbar__top .search { flex: 1; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: none; color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.chip .num { color: var(--text); font-weight: 600; }
+.chip:hover { color: var(--text); border-color: #484F58; }
+.chip[aria-pressed="true"] { color: #1A1300; background: var(--gold-bright); border-color: var(--gold-bright); }
+.chip[aria-pressed="true"] .num { color: #1A1300; }
+.lad { display: grid; }
+.lad__row { display: grid; grid-template-columns: 70px 230px 1fr 34px 40px; gap: 12px; align-items: center; padding: 6px 8px; margin: 0 -8px; border: 0; border-radius: var(--radius-sm); background: none; font: inherit; text-align: left; cursor: pointer; position: relative; }
+.lad__row:hover { background: rgba(255,255,255,.04); }
+.lad__row[aria-checked="true"] { background: rgba(210,153,34,.12); }
+.lad__row[aria-checked="true"]::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; border-radius: 2px; background: var(--gold-bright); }
+.lad__label { font-size: 13px; font-weight: 600; color: var(--text); }
+.lad__hint { font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lad__track { height: 8px; border-radius: 4px; background: rgba(255,255,255,.07); overflow: hidden; }
+.lad__bar { display: block; height: 100%; border-radius: 4px; background: var(--gold-bright); }
+.lad__row:not([aria-checked="true"]) .lad__bar { background: var(--gold); }
+.lad__n { font-size: 13px; font-weight: 600; color: var(--text); text-align: right; }
+.lad__kept { font-size: 12px; color: var(--text-2); text-align: right; }
+@media (max-width: 720px) { .lad__row { grid-template-columns: 70px 1fr 34px 40px; } .lad__hint { display: none; } }
