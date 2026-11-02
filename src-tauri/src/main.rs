@@ -113,6 +113,7 @@ fn main() {
             commands::search_threads,
             commands::get_thread,
             commands::list_agents,
+            commands::social_graph,
             commands::get_activity,
             commands::list_runs,
             commands::set_pin,

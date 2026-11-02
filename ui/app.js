@@ -163,7 +163,17 @@
       if (e.target.closest?.("[data-agent]") || card.contains(e.target)) hide();
     });
   }
-  $("#setupbtn").addEventListener("click", () => go("setup"));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && S.diffFull) {
+      S.diffFull = false;
+      if (S.view === "setup") swapStep(5, 0);
+    }
+  });
+  $("#setupbtn").addEventListener("click", () => {
+    S.setupViaSettings = true;
+    S.setup.showCurrent = null;
+    go("setup");
+  });
 
   async function refreshSnap() {
     S.snap = await invoke("snapshot");
@@ -235,6 +245,7 @@
         <section class="board__reader surface" id="reader" aria-live="polite"></section>
       </div></div>`;
     $("#reviewupdate")?.addEventListener("click", () => {
+      S.setupViaSettings = false;
       S.setupStep = 5;
       S.setup.plan = null;
       go("setup");
@@ -561,7 +572,7 @@
 
   // ------------------------------------------------------------ agents
   const AGENT_FILTERS = [
-    ["all", "All"],
+    ["all", "Everyone"],
     ["connected", "Connected"],
     ["posting", "Posting"],
     ["quiet", "Quiet"],
@@ -575,9 +586,44 @@
     S.agentList = agents;
     S.agentLive = live;
     S.agentFilter = S.agentFilter || "all";
-    main.innerHTML = `<div class="page page--narrow"><div id="agbar"></div><div id="aglist"></div></div>`;
-    renderAgentBar();
-    renderAgentList();
+    S.agentTab = S.agentTab || "all";
+    const tabs = [["all", "All"], ["list", "List"]]
+      .map(([id, l]) => `<button class="seg__btn" role="tab" data-agtab="${id}" aria-checked="${S.agentTab === id}">${l}</button>`)
+      .join("");
+    main.innerHTML = `<div class="page ${S.agentTab === "all" ? "page--wide" : "page--narrow"}"><div class="agtabs"><div class="seg" role="tablist" aria-label="Agents view">${tabs}</div><div id="agvariant"></div></div>
+      ${S.agentTab === "all" ? `<div id="social"></div>` : `<div id="agbar"></div><div id="aglist"></div>`}</div>`;
+    $$("[data-agtab]").forEach((b) => b.addEventListener("click", () => ((S.agentTab = b.dataset.agtab), renderAgents())));
+    if (S.agentTab === "all") {
+      renderVariantBar();
+      await renderSocial();
+    } else {
+      renderAgentBar();
+      renderAgentList();
+    }
+  }
+
+  // Five ways to show the agents' social life. The choice is kept between visits.
+  S.socialVariant = localStorage.getItem("pinrelay.socialVariant") || "constellation";
+  function renderVariantBar() {
+    const box = $("#agvariant");
+    if (!box) return;
+    box.innerHTML = `<div class="seg seg--quiet" role="radiogroup" aria-label="Visualization">${window.socialView.VARIANTS.map(
+      ([id, l], i) => `<button class="seg__btn" role="radio" data-variant="${id}" aria-checked="${S.socialVariant === id}" title="Option ${i + 1}">${l}</button>`
+    ).join("")}</div>`;
+    $$("[data-variant]", box).forEach((b) =>
+      b.addEventListener("click", () => {
+        S.socialVariant = b.dataset.variant;
+        localStorage.setItem("pinrelay.socialVariant", S.socialVariant);
+        renderVariantBar();
+        renderSocial(false);
+      })
+    );
+  }
+  async function renderSocial(fetch = true) {
+    const root = $("#social");
+    if (!root) return;
+    if (fetch || !S.social) S.social = await invoke("social_graph").catch(() => ({ agents: [], edges: [], days: 14 }));
+    window.socialView.render(root, S.social, S.socialVariant);
   }
 
   const agentMatch = (a, f) =>
@@ -1255,20 +1301,29 @@
     const done = S.snap.setup_completed;
     return `<h2>${st.uninstall ? "Remove Pinrelay from Copilot" : "Review changes"}</h2>
       ${st.uninstall ? "" : `<label class="toggle-row login-opt"><span class="toggle"><input type="checkbox" id="optlogin" ${st.login ? "checked" : ""}/><span class="toggle__slider"></span></span>Start Pinrelay when you log in</label>`}
-      <div class="diffview">
+      <div class="diffview${S.diffFull ? " diffview--full" : ""}">
         <div class="files">${plan.changes
           .map(
             (c) => `<button class="file" data-file="${c.id}" aria-selected="${c.id === sel.id}"><span class="file__name">${esc(c.label)}</span><span class="file__path" title="${esc(c.path)}">${esc(c.display_path || c.path)}</span>
             <span class="file__delta">${c.status === "unchanged" ? `<span class="text-muted">no change</span>` : c.status === "error" ? `<span class="d">cannot change</span>` : `<span class="a">+${c.added}</span> <span class="d">−${c.removed}</span>`}</span></button>`
           )
           .join("")}</div>
+        <div class="diffpane">
+        <div class="diff__bar"><span class="diff__file" title="${esc(sel.path)}">${esc(sel.display_path || sel.path)}</span>${
+          sel.status === "unchanged" ? `<span class="text-muted">no change</span>` : sel.status === "error" ? "" : `<span class="diff__n"><span class="a">+${sel.added}</span> <span class="d">−${sel.removed}</span></span>`
+        }<button class="iconbtn diff__fullbtn" id="difffull" title="${S.diffFull ? "Exit full screen (Esc)" : "Full screen"}" aria-label="${S.diffFull ? "Exit full screen" : "Full screen"}" aria-pressed="${!!S.diffFull}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${
+          S.diffFull ? '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>' : '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'
+        }</svg></button></div>
         <div class="diff" tabindex="0" aria-label="Diff">
           ${sel.warning ? `<div class="diff__purpose"><div class="banner banner--warn" style="margin:0">${esc(sel.warning)}</div></div>` : ""}
           ${
             sel.status === "unchanged"
-              ? `<div class="empty">Already up to date.</div>`
+              ? st.showCurrent === sel.id
+                ? currentHtml(sel)
+                : `<div class="empty">Already up to date.${S.setupViaSettings && S.snap.setup_completed ? `<button class="linkbtn" id="showcurrent">${sel.id.startsWith("instructions:") ? "Show the instructions Pinrelay added" : "Show the current content"}</button>` : ""}</div>`
               : sel.diff.map((l) => `<div class="l ${l.tag}"><span>${l.old ?? ""}</span><span>${l.new ?? ""}</span><span>${l.tag === "add" ? "+" : l.tag === "del" ? "−" : ""}</span><span>${esc(l.text)}</span></div>`).join("")
           }
+        </div>
         </div>
       </div>
       <div class="onb__actions">
@@ -1279,6 +1334,21 @@
         <span style="flex:1"></span>
         ${done && !st.uninstall ? `<button class="linkbtn" id="toggleun">Remove Pinrelay from Copilot</button>` : ""}
       </div>`;
+  }
+
+  // The installed content of an unchanged file, read-only. For instruction files only Pinrelay's
+  // own block is shown, with its real line numbers in the file.
+  function currentHtml(sel) {
+    const lines = (sel.after || "").replace(/\n$/, "").split("\n");
+    let from = 0, to = lines.length - 1;
+    const b = lines.findIndex((l) => /<!-- (pinrelay|cork):begin/.test(l));
+    if (b >= 0) {
+      from = b;
+      const e = lines.findIndex((l, i) => i > b && /<!-- (pinrelay|cork):end -->/.test(l));
+      if (e >= 0) to = e;
+    }
+    const rows = lines.slice(from, to + 1).map((t, i) => `<div class="l add"><span></span><span>${from + i + 1}</span><span>+</span><span>${esc(t)}</span></div>`).join("");
+    return `<div class="diff__purpose diff__current"><span>Installed now · ${plural(to - from + 1, "line")}${b >= 0 ? " · Pinrelay's block only" : ""}</span><button class="linkbtn" id="hidecurrent">Hide</button></div>${rows}`;
   }
 
   function stepHtml(step) {
@@ -1453,7 +1523,10 @@
       bindBoardSize((n) => (st.capacity = n), (n) => (st.pins = n));
     }
     if (step === 5) {
-      $$("[data-file]").forEach((b) => b.addEventListener("click", () => ((st.file = b.dataset.file), swapStep(5, 0))));
+      $$("[data-file]").forEach((b) => b.addEventListener("click", () => ((st.file = b.dataset.file), (st.showCurrent = null), swapStep(5, 0))));
+      $("#showcurrent")?.addEventListener("click", () => ((st.showCurrent = st.file || st.plan?.changes[0]?.id), swapStep(5, 0)));
+      $("#hidecurrent")?.addEventListener("click", () => ((st.showCurrent = null), swapStep(5, 0)));
+      $("#difffull")?.addEventListener("click", () => ((S.diffFull = !S.diffFull), swapStep(5, 0)));
       $("#optlogin")?.addEventListener("change", (e) => {
         st.login = e.target.checked;
         st.file = "login";
@@ -1560,6 +1633,9 @@
           cap.title = capTitle(S.snap.overview);
         }
         if (S.selected && !S.quarantineForm) await loadDetail(true);
+      } else if (v === "agents" && $("#social")) {
+        await loadAgents();
+        await renderSocial();
       } else if (v === "agents" && $("#aglist")) {
         S.agentList = (await loadAgents()).sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
         renderAgentList();

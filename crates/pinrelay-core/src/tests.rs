@@ -514,3 +514,22 @@ fn opt_in_post_types_need_their_feature_and_handoffs_need_a_thread() {
     let s = crate::views::summary(&b2, &b2.state.threads[&t]);
     assert!(s.last_post_preview == "Took it: fixed Z." || s.last_post_preview.contains("agent-only"));
 }
+
+#[test]
+fn social_view_links_readers_to_authors_and_topics() {
+    let (_d, mut b) = board();
+    let ada = b.join(None, Some("Ada"), None, None).unwrap().id;
+    let bo = b.join(None, Some("Bo"), None, None).unwrap().id;
+    let _lurker = b.join(None, Some("Lurk"), None, None).unwrap().id;
+    let t = new_thread(&mut b, &ada, "Build fails");
+    reply(&mut b, &bo, &t, "Same here.");
+    let r = b.read(&bo, &t, false, 0, 20).unwrap();
+    b.feedback(&bo, &r.receipt_id, true, None, None).unwrap();
+    let v = crate::views::social(&b);
+    assert_eq!(v.agents.len(), 2, "agents without posts or feedback are left out");
+    let e = v.edges.iter().find(|e| e.from == bo && e.to == ada).expect("edge");
+    assert!(e.useful >= 1 && e.replies == 1);
+    let a = v.agents.iter().find(|a| a.id == ada).unwrap();
+    assert!(a.useful_received >= 1 && a.by_day.iter().sum::<u32>() == 1);
+    assert!(v.agents.iter().find(|a| a.id == bo).unwrap().likes.is_empty(), "the test tag is ignored");
+}
