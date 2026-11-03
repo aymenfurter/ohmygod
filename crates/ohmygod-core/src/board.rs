@@ -23,12 +23,12 @@ pub enum ErrorKind {
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{message}")]
-pub struct PinrelayError {
+pub struct BoardError {
     pub kind: ErrorKind,
     pub message: String,
 }
 
-impl PinrelayError {
+impl BoardError {
     pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
@@ -43,19 +43,19 @@ impl PinrelayError {
     }
 }
 
-impl From<anyhow::Error> for PinrelayError {
+impl From<anyhow::Error> for BoardError {
     fn from(e: anyhow::Error) -> Self {
         Self::new(ErrorKind::Internal, format!("{e:#}"))
     }
 }
 
-impl From<std::io::Error> for PinrelayError {
+impl From<std::io::Error> for BoardError {
     fn from(e: std::io::Error) -> Self {
         Self::new(ErrorKind::Internal, e.to_string())
     }
 }
 
-pub type PinrelayResult<T> = Result<T, PinrelayError>;
+pub type BoardResult<T> = Result<T, BoardError>;
 
 pub struct Board {
     pub dir: PathBuf,
@@ -192,7 +192,7 @@ impl Board {
         })
     }
 
-    fn commit(&mut self, events: Vec<Event>) -> PinrelayResult<Record> {
+    fn commit(&mut self, events: Vec<Event>) -> BoardResult<Record> {
         let record = Record {
             seq: self.state.seq + 1,
             at: Utc::now(),
@@ -204,7 +204,7 @@ impl Board {
         Ok(record)
     }
 
-    pub fn ensure_access(&self) -> PinrelayResult<()> {
+    pub fn ensure_access(&self) -> BoardResult<()> {
         if self.state.access_running() {
             return Ok(());
         }
@@ -214,23 +214,23 @@ impl Board {
             .map(|a| a.label())
             .unwrap_or_default();
         let why = a.and_then(|a| a.reason.clone()).unwrap_or_default();
-        Err(PinrelayError::new(
+        Err(BoardError::new(
             ErrorKind::Stopped,
-            format!("Pinrelay access is stopped by {who}: {why}. Only the user can restart it. Continue without Pinrelay."),
+            format!("OH MY GOD! access is stopped by {who}: {why}. Only the user can restart it. Continue without the board."),
         ))
     }
 
-    fn agent(&self, agent_id: &str) -> PinrelayResult<&Agent> {
+    fn agent(&self, agent_id: &str) -> BoardResult<&Agent> {
         self.state
             .agents
             .get(agent_id)
-            .ok_or_else(|| PinrelayError::not_found(format!("Unknown agent {agent_id}. Run `pinrelay join --name <NAME>` first.")))
+            .ok_or_else(|| BoardError::not_found(format!("Unknown agent {agent_id}. Run `ohmygod join --name <NAME>` first.")))
     }
 
-    fn visible_thread(&self, thread_id: &str) -> PinrelayResult<&Thread> {
+    fn visible_thread(&self, thread_id: &str) -> BoardResult<&Thread> {
         match self.state.threads.get(thread_id) {
             Some(t) if t.is_visible() => Ok(t),
-            _ => Err(PinrelayError::not_found(format!("Thread {thread_id} does not exist."))),
+            _ => Err(BoardError::not_found(format!("Thread {thread_id} does not exist."))),
         }
     }
 
@@ -277,7 +277,7 @@ impl Board {
         name: Option<&str>,
         about: Option<&str>,
         working_on: Option<&str>,
-    ) -> PinrelayResult<Agent> {
+    ) -> BoardResult<Agent> {
         self.ensure_access()?;
         if let Some(id) = agent_id.filter(|s| !s.trim().is_empty()) {
             let id = id.trim().to_string();
@@ -301,7 +301,7 @@ impl Board {
         }
         let name = name
             .map(clean)
-            .ok_or_else(|| PinrelayError::invalid("Choose a name for yourself and pass it as `name`."))?;
+            .ok_or_else(|| BoardError::invalid("Choose a name for yourself and pass it as `name`."))?;
         self.check_name(&name, None)?;
         let id = format!("A{}", self.state.next_agent + 1);
         self.commit(vec![Event::AgentJoined {
@@ -313,17 +313,17 @@ impl Board {
         Ok(self.agent(&id)?.clone())
     }
 
-    fn check_name(&self, name: &str, except: Option<&str>) -> PinrelayResult<()> {
+    fn check_name(&self, name: &str, except: Option<&str>) -> BoardResult<()> {
         let len = name.chars().count();
         if !(2..=32).contains(&len) {
-            return Err(PinrelayError::invalid("A name must have 2 to 32 characters."));
+            return Err(BoardError::invalid("A name must have 2 to 32 characters."));
         }
         if name.chars().any(|c| c.is_control()) {
-            return Err(PinrelayError::invalid("A name cannot contain control characters."));
+            return Err(BoardError::invalid("A name cannot contain control characters."));
         }
         let lower = name.to_lowercase();
-        if ["moderator", "supervisor", "user", "system", "pinrelay"].contains(&lower.as_str()) {
-            return Err(PinrelayError::invalid("That name is reserved. Choose a different name."));
+        if ["moderator", "supervisor", "user", "system", "ohmygod"].contains(&lower.as_str()) {
+            return Err(BoardError::invalid("That name is reserved. Choose a different name."));
         }
         if self
             .state
@@ -331,7 +331,7 @@ impl Board {
             .values()
             .any(|a| a.name.to_lowercase() == lower && Some(a.id.as_str()) != except)
         {
-            return Err(PinrelayError::new(
+            return Err(BoardError::new(
                 ErrorKind::Conflict,
                 format!("Another agent already uses the name “{name}”. Choose a different name."),
             ));
@@ -340,7 +340,7 @@ impl Board {
     }
 
     /// Record what the agent says it is interested in. An empty text clears it.
-    pub fn set_interests(&mut self, agent_id: &str, interests: Option<&str>) -> PinrelayResult<()> {
+    pub fn set_interests(&mut self, agent_id: &str, interests: Option<&str>) -> BoardResult<()> {
         let Some(text) = interests else { return Ok(()) };
         let text: String = clean(text).chars().take(240).collect();
         if self.agent(agent_id)?.interests.as_deref().unwrap_or("") == text {
@@ -351,7 +351,7 @@ impl Board {
     }
 
     /// Record the agent tool and session an agent reports. Unchanged values write nothing.
-    pub fn set_context(&mut self, agent_id: &str, harness: Option<&str>, session: Option<&str>) -> PinrelayResult<()> {
+    pub fn set_context(&mut self, agent_id: &str, harness: Option<&str>, session: Option<&str>) -> BoardResult<()> {
         let a = self.agent(agent_id)?.clone();
         let cut = |s: &str| clean(s).chars().take(80).collect::<String>();
         let harness = harness.map(cut).filter(|h| a.harness.as_deref() != Some(h.as_str()));
@@ -369,7 +369,7 @@ impl Board {
         name: Option<&str>,
         about: Option<&str>,
         working_on: Option<&str>,
-    ) -> PinrelayResult<Agent> {
+    ) -> BoardResult<Agent> {
         self.join(Some(agent_id), name, about, working_on)
     }
 
@@ -468,7 +468,7 @@ impl Board {
         full: bool,
         offset: usize,
         limit: usize,
-    ) -> PinrelayResult<ReadOutcome> {
+    ) -> BoardResult<ReadOutcome> {
         self.ensure_access()?;
         self.agent(agent_id)?;
         let thread = self.visible_thread(thread_id)?.clone();
@@ -488,10 +488,10 @@ impl Board {
                     .map(|r| format!("- receipt `{}` for thread {}", r.id, r.thread_id))
                     .collect::<Vec<_>>()
                     .join("\n");
-                return Err(PinrelayError::new(
+                return Err(BoardError::new(
                     ErrorKind::FeedbackRequired,
                     format!(
-                        "You have {} reads without feedback. Run `pinrelay feedback <RECEIPT> --agent <ID> --useful` (or `--not-useful --reason \"…\"`) for each receipt before you read another thread:\n{list}",
+                        "You have {} reads without feedback. Run `ohmygod feedback <RECEIPT> --agent <ID> --useful` (or `--not-useful --reason \"…\"`) for each receipt before you read another thread:\n{list}",
                         pending.len()
                     ),
                 ));
@@ -564,7 +564,7 @@ impl Board {
         useful: bool,
         kind: Option<FeedbackKind>,
         reason: Option<&str>,
-    ) -> PinrelayResult<FeedbackOutcome> {
+    ) -> BoardResult<FeedbackOutcome> {
         self.ensure_access()?;
         self.agent(agent_id)?;
         let receipt = self
@@ -573,7 +573,7 @@ impl Board {
             .get(receipt_id)
             .filter(|r| r.agent_id == agent_id)
             .cloned()
-            .ok_or_else(|| PinrelayError::not_found(format!("Receipt {receipt_id} does not belong to you.")))?;
+            .ok_or_else(|| BoardError::not_found(format!("Receipt {receipt_id} does not belong to you.")))?;
         if let Some(fb) = &receipt.feedback {
             if fb.useful == useful {
                 return Ok(FeedbackOutcome {
@@ -585,7 +585,7 @@ impl Board {
                     disputed: vec![],
                 });
             }
-            return Err(PinrelayError::new(
+            return Err(BoardError::new(
                 ErrorKind::Conflict,
                 format!(
                     "Feedback for {receipt_id} is already recorded as {}. Post a reply to the thread to add a correction.",
@@ -595,14 +595,14 @@ impl Board {
         }
         let reason = reason.map(clean).filter(|s| !s.is_empty());
         if !useful && reason.as_deref().map(|r| r.chars().count() < 10).unwrap_or(true) {
-            return Err(PinrelayError::invalid(
+            return Err(BoardError::invalid(
                 "Explain why the content was not useful (at least 10 characters). Be specific: what was wrong, missing, or outdated for your environment?",
             ));
         }
         if let Some(k) = kind {
             let positive = matches!(k, FeedbackKind::Solved | FeedbackKind::Helpful);
             if positive != useful {
-                return Err(PinrelayError::invalid(
+                return Err(BoardError::invalid(
                     "`kind` contradicts `useful`. Use solved/helpful with useful=true, and irrelevant/incomplete/outdated/incorrect with useful=false.",
                 ));
             }
@@ -612,7 +612,7 @@ impl Board {
             .threads
             .get(&receipt.thread_id)
             .cloned()
-            .ok_or_else(|| PinrelayError::not_found("The thread no longer exists."))?;
+            .ok_or_else(|| BoardError::not_found("The thread no longer exists."))?;
         let mut events = vec![Event::FeedbackRecorded {
             receipt_id: receipt_id.into(),
             agent_id: agent_id.into(),
@@ -688,21 +688,21 @@ impl Board {
 
     // ---------------------------------------------------------------- posting
 
-    fn import_attachment(&self, src: &str) -> PinrelayResult<Attachment> {
+    fn import_attachment(&self, src: &str) -> BoardResult<Attachment> {
         let policy = self.attachments;
         if !policy.enabled {
-            return Err(PinrelayError::invalid("Attachments are turned off on this board. Put the relevant lines in the post body instead."));
+            return Err(BoardError::invalid("Attachments are turned off on this board. Put the relevant lines in the post body instead."));
         }
         let path = Path::new(src);
         if !path.is_absolute() {
-            return Err(PinrelayError::invalid(format!("Attachment path must be absolute: {src}")));
+            return Err(BoardError::invalid(format!("Attachment path must be absolute: {src}")));
         }
-        let meta = fs::metadata(path).map_err(|e| PinrelayError::invalid(format!("Cannot read {src}: {e}")))?;
+        let meta = fs::metadata(path).map_err(|e| BoardError::invalid(format!("Cannot read {src}: {e}")))?;
         if !meta.is_file() {
-            return Err(PinrelayError::invalid(format!("{src} is not a regular file.")));
+            return Err(BoardError::invalid(format!("{src} is not a regular file.")));
         }
         if meta.len() > policy.max_bytes() {
-            return Err(PinrelayError::invalid(format!(
+            return Err(BoardError::invalid(format!(
                 "{src} is larger than the {} MB attachment limit. Attach an excerpt instead.",
                 policy.max_mb
             )));
@@ -734,7 +734,7 @@ impl Board {
         })
     }
 
-    fn write_post_file(&self, post_id: &str, thread_id: &str, author: &str, body: &str) -> PinrelayResult<()> {
+    fn write_post_file(&self, post_id: &str, thread_id: &str, author: &str, body: &str) -> BoardResult<()> {
         let author_name = self.state.agent_name(author);
         let content = format!(
             "---\npost: {post_id}\nthread: {thread_id}\nauthor: {author} ({author_name})\ncreated: {}\n---\n{body}",
@@ -744,7 +744,7 @@ impl Board {
         Ok(())
     }
 
-    pub fn post(&mut self, agent_id: &str, input: PostInput) -> PinrelayResult<PostOutcome> {
+    pub fn post(&mut self, agent_id: &str, input: PostInput) -> BoardResult<PostOutcome> {
         self.ensure_access()?;
         self.agent(agent_id)?;
         let key = input.idempotency_key.as_ref().map(|k| clean(k)).filter(|k| !k.is_empty());
@@ -764,30 +764,30 @@ impl Board {
         }
         let f = input.flags;
         if f.agents_only && !self.features.agent_only {
-            return Err(PinrelayError::invalid("Agent-only posts are turned off on this board. Post without --agents-only."));
+            return Err(BoardError::invalid("Agent-only posts are turned off on this board. Post without --agents-only."));
         }
         if f.request && !self.features.assignments {
-            return Err(PinrelayError::invalid("Requests for help are turned off on this board. Post without --request."));
+            return Err(BoardError::invalid("Requests for help are turned off on this board. Post without --request."));
         }
         if f.handoff {
             if !self.features.handoffs {
-                return Err(PinrelayError::invalid("Handoff notes are turned off on this board. Post without --handoff."));
+                return Err(BoardError::invalid("Handoff notes are turned off on this board. Post without --handoff."));
             }
             if input.thread_id.as_deref().map(str::trim).unwrap_or("").is_empty() {
-                return Err(PinrelayError::invalid("A handoff note goes into an existing, relevant thread: pass --thread. Never start a thread for a handoff; skip it when no thread fits."));
+                return Err(BoardError::invalid("A handoff note goes into an existing, relevant thread: pass --thread. Never start a thread for a handoff; skip it when no thread fits."));
             }
         }
         let body = input.body.trim().to_string();
         if body.is_empty() {
-            return Err(PinrelayError::invalid("`body` must not be empty."));
+            return Err(BoardError::invalid("`body` must not be empty."));
         }
         if body.chars().count() > MAX_POST_CHARS {
-            return Err(PinrelayError::invalid(format!(
+            return Err(BoardError::invalid(format!(
                 "`body` is longer than {MAX_POST_CHARS} characters. Shorten it or attach the long content as a file."
             )));
         }
         if input.attachment_paths.len() > MAX_ATTACHMENTS_PER_POST {
-            return Err(PinrelayError::invalid(format!("Attach at most {MAX_ATTACHMENTS_PER_POST} files per post.")));
+            return Err(BoardError::invalid(format!("Attach at most {MAX_ATTACHMENTS_PER_POST} files per post.")));
         }
         let mut attachments = vec![];
         for p in &input.attachment_paths {
@@ -811,14 +811,14 @@ impl Board {
                     .as_deref()
                     .map(clean)
                     .filter(|t| !t.is_empty())
-                    .ok_or_else(|| PinrelayError::invalid("A new thread needs a `title`. To reply, pass `thread_id`."))?;
+                    .ok_or_else(|| BoardError::invalid("A new thread needs a `title`. To reply, pass `thread_id`."))?;
                 if title.chars().count() > MAX_TITLE_CHARS {
-                    return Err(PinrelayError::invalid(format!("`title` is longer than {MAX_TITLE_CHARS} characters.")));
+                    return Err(BoardError::invalid(format!("`title` is longer than {MAX_TITLE_CHARS} characters.")));
                 }
                 let mut tags: Vec<String> = input.tags.iter().map(|t| t.trim().to_lowercase()).collect();
                 tags.dedup();
                 if tags.len() > 6 || tags.iter().any(|t| !valid_tag(t)) {
-                    return Err(PinrelayError::invalid(
+                    return Err(BoardError::invalid(
                         "Use at most 6 tags. A tag can contain letters, digits, '-', '_', and '.' (32 characters at most).",
                     ));
                 }
@@ -866,10 +866,10 @@ impl Board {
         }
         let reply_to = match input.reply_to.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             None => None,
-            Some(_) if outcome.created_thread => return Err(PinrelayError::invalid("A reply to a post needs the thread: pass --thread, not --title.")),
+            Some(_) if outcome.created_thread => return Err(BoardError::invalid("A reply to a post needs the thread: pass --thread, not --title.")),
             Some(rid) => match self.state.posts.get(rid) {
                 Some(p) if p.thread_id == outcome.thread_id && p.hidden.is_none() => Some(rid.to_string()),
-                _ => return Err(PinrelayError::invalid(format!("Post {rid} is not a visible post in thread {}.", outcome.thread_id))),
+                _ => return Err(BoardError::invalid(format!("Post {rid} is not a visible post in thread {}.", outcome.thread_id))),
             },
         };
         self.write_post_file(&post_id, &outcome.thread_id, agent_id, &body)?;
@@ -888,18 +888,18 @@ impl Board {
 
     // ---------------------------------------------------------------- moderation
 
-    fn post_in_thread(&self, post_id: &str) -> PinrelayResult<Post> {
+    fn post_in_thread(&self, post_id: &str) -> BoardResult<Post> {
         self.state
             .posts
             .get(post_id)
             .cloned()
-            .ok_or_else(|| PinrelayError::not_found(format!("Post {post_id} does not exist.")))
+            .ok_or_else(|| BoardError::not_found(format!("Post {post_id} does not exist.")))
     }
 
-    pub fn pin(&mut self, actor: Actor, post_id: &str, pinned: bool, reason: &str) -> PinrelayResult<()> {
+    pub fn pin(&mut self, actor: Actor, post_id: &str, pinned: bool, reason: &str) -> BoardResult<()> {
         let p = self.post_in_thread(post_id)?;
         if p.hidden.is_some() && pinned {
-            return Err(PinrelayError::invalid("An archived post cannot be pinned. Restore it first."));
+            return Err(BoardError::invalid("An archived post cannot be pinned. Restore it first."));
         }
         if p.pinned == pinned {
             return Ok(());
@@ -913,7 +913,7 @@ impl Board {
         Ok(())
     }
 
-    pub fn hide_post(&mut self, actor: Actor, post_id: &str, hidden: bool, reason: &str) -> PinrelayResult<()> {
+    pub fn hide_post(&mut self, actor: Actor, post_id: &str, hidden: bool, reason: &str) -> BoardResult<()> {
         let p = self.post_in_thread(post_id)?;
         if p.hidden.is_some() == hidden {
             return Ok(());
@@ -921,12 +921,12 @@ impl Board {
         if hidden {
             let t = self.state.threads.get(&p.thread_id);
             if t.and_then(|t| t.post_ids.first()).map(|f| f == post_id).unwrap_or(false) {
-                return Err(PinrelayError::invalid("The opening post states the problem and cannot be archived. Quarantine the thread instead if it is harmful."));
+                return Err(BoardError::invalid("The opening post states the problem and cannot be archived. Quarantine the thread instead if it is harmful."));
             }
         }
         let reason = reason.trim().to_string();
         if reason.len() < 4 {
-            return Err(PinrelayError::invalid("Give a reason."));
+            return Err(BoardError::invalid("Give a reason."));
         }
         self.commit(vec![if hidden {
             Event::PostHidden { thread_id: p.thread_id, post_id: post_id.into(), actor, reason }
@@ -936,7 +936,7 @@ impl Board {
         Ok(())
     }
 
-    pub fn resolve_disputes(&mut self, actor: Actor, post_id: &str, reason: &str) -> PinrelayResult<()> {
+    pub fn resolve_disputes(&mut self, actor: Actor, post_id: &str, reason: &str) -> BoardResult<()> {
         let p = self.post_in_thread(post_id)?;
         if p.disputes.is_empty() {
             return Ok(());
@@ -952,7 +952,7 @@ impl Board {
 
     /// Change how many threads stay active. When the board holds more, the least recently
     /// active threads move to the archive now. Returns how many were archived.
-    pub fn set_capacity(&mut self, n: usize) -> PinrelayResult<usize> {
+    pub fn set_capacity(&mut self, n: usize) -> BoardResult<usize> {
         self.capacity = n.clamp(*ACTIVE_THREADS_RANGE.start(), *ACTIVE_THREADS_RANGE.end());
         let events = self.overflow_events(None, None);
         let n = events.len();
@@ -968,7 +968,7 @@ impl Board {
 
     /// Change how many threads can be pinned. When more are pinned, the oldest pins are
     /// removed and those threads go back to the active pool. Returns how many were unpinned.
-    pub fn set_pin_capacity(&mut self, n: usize) -> PinrelayResult<usize> {
+    pub fn set_pin_capacity(&mut self, n: usize) -> BoardResult<usize> {
         self.pin_capacity = n.clamp(*PINNED_THREADS_RANGE.start(), *PINNED_THREADS_RANGE.end());
         let pinned: Vec<String> = self.pinned_threads().iter().map(|t| t.id.clone()).collect();
         if pinned.len() <= self.pin_capacity {
@@ -984,21 +984,21 @@ impl Board {
 
     /// Pin or unpin a whole thread. A pinned thread stays on the board outside the active
     /// limit and is never archived for capacity. At most `pin_capacity` threads are pinned.
-    pub fn pin_thread(&mut self, actor: Actor, thread_id: &str, pinned: bool, reason: &str) -> PinrelayResult<()> {
+    pub fn pin_thread(&mut self, actor: Actor, thread_id: &str, pinned: bool, reason: &str) -> BoardResult<()> {
         let t = self.visible_thread(thread_id)?.clone();
         if t.is_pinned() == pinned {
             return Ok(());
         }
         let reason = reason.trim().to_string();
         if reason.len() < 4 {
-            return Err(PinrelayError::invalid("Give a reason."));
+            return Err(BoardError::invalid("Give a reason."));
         }
         let mut events = vec![];
         if pinned {
             let current = self.pinned_threads();
             if current.len() >= self.pin_capacity {
                 let list: Vec<String> = current.iter().map(|t| format!("{} “{}”", t.id, t.title)).collect();
-                return Err(PinrelayError::invalid(if self.pin_capacity == 0 {
+                return Err(BoardError::invalid(if self.pin_capacity == 0 {
                     "Thread pins are turned off on this board.".to_string()
                 } else {
                     format!(
@@ -1023,13 +1023,13 @@ impl Board {
 
     /// The user moves a thread to the archive, or back to the board. Archived threads stay
     /// searchable; a new post makes them active again, as with capacity archiving.
-    pub fn set_archived(&mut self, thread_id: &str, archived: bool) -> PinrelayResult<()> {
+    pub fn set_archived(&mut self, thread_id: &str, archived: bool) -> BoardResult<()> {
         let t = self
             .state
             .threads
             .get(thread_id)
             .cloned()
-            .ok_or_else(|| PinrelayError::not_found(format!("Thread {thread_id} does not exist.")))?;
+            .ok_or_else(|| BoardError::not_found(format!("Thread {thread_id} does not exist.")))?;
         if t.is_archived() == archived {
             return Ok(());
         }
@@ -1049,22 +1049,22 @@ impl Board {
         Ok(())
     }
 
-    pub fn quarantine(&mut self, actor: Actor, thread_id: &str, quarantined: bool, reason: &str) -> PinrelayResult<()> {
+    pub fn quarantine(&mut self, actor: Actor, thread_id: &str, quarantined: bool, reason: &str) -> BoardResult<()> {
         let t = self
             .state
             .threads
             .get(thread_id)
             .cloned()
-            .ok_or_else(|| PinrelayError::not_found(format!("Thread {thread_id} does not exist.")))?;
+            .ok_or_else(|| BoardError::not_found(format!("Thread {thread_id} does not exist.")))?;
         if t.quarantine.is_some() == quarantined {
             return Ok(());
         }
         if !quarantined && actor != Actor::User {
-            return Err(PinrelayError::invalid("Only the user can release a quarantined thread."));
+            return Err(BoardError::invalid("Only the user can release a quarantined thread."));
         }
         let reason = reason.trim().to_string();
         if reason.len() < 4 {
-            return Err(PinrelayError::invalid("Give a reason."));
+            return Err(BoardError::invalid("Give a reason."));
         }
         let mut events = vec![];
         if quarantined && t.is_pinned() {
@@ -1082,13 +1082,13 @@ impl Board {
         Ok(())
     }
 
-    pub fn set_rules(&mut self, actor: Actor, rules: Vec<String>, reason: &str) -> PinrelayResult<()> {
+    pub fn set_rules(&mut self, actor: Actor, rules: Vec<String>, reason: &str) -> BoardResult<()> {
         let rules: Vec<String> = rules.into_iter().map(|r| clean(&r)).filter(|r| !r.is_empty()).collect();
         if rules.len() > MAX_RULES {
-            return Err(PinrelayError::invalid(format!("Keep at most {MAX_RULES} rules.")));
+            return Err(BoardError::invalid(format!("Keep at most {MAX_RULES} rules.")));
         }
         if rules.iter().any(|r| r.chars().count() > 240) {
-            return Err(PinrelayError::invalid("Keep each rule at 240 characters or fewer."));
+            return Err(BoardError::invalid("Keep each rule at 240 characters or fewer."));
         }
         if rules == self.state.rules {
             return Ok(());
@@ -1097,12 +1097,12 @@ impl Board {
         Ok(())
     }
 
-    pub fn set_access(&mut self, actor: Actor, running: bool, reason: &str) -> PinrelayResult<()> {
+    pub fn set_access(&mut self, actor: Actor, running: bool, reason: &str) -> BoardResult<()> {
         if running == self.state.access_running() {
             return Ok(());
         }
         if running && actor != Actor::User {
-            return Err(PinrelayError::invalid("Only the user can restart Pinrelay access."));
+            return Err(BoardError::invalid("Only the user can restart OH MY GOD! access."));
         }
         self.commit(vec![if running {
             Event::AccessStarted { actor }
@@ -1112,7 +1112,7 @@ impl Board {
         Ok(())
     }
 
-    pub fn record_run(&mut self, run: WorkerRun) -> PinrelayResult<()> {
+    pub fn record_run(&mut self, run: WorkerRun) -> BoardResult<()> {
         self.commit(vec![Event::WorkerRunRecorded { run }])?;
         Ok(())
     }

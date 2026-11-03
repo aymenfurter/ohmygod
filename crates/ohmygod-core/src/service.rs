@@ -1,4 +1,4 @@
-//! The board service behind the `pinrelay` command: one call per command, identified by agent ID.
+//! The board service behind the `ohmygod` command: one call per command, identified by agent ID.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
-use crate::board::{Board, ErrorKind, PinrelayError, PostInput};
+use crate::board::{Board, ErrorKind, BoardError, PostInput};
 use crate::model::{FeedbackKind, PostFlags};
 use crate::render;
 
@@ -56,15 +56,15 @@ impl Service {
         }
     }
 
-    fn require_agent(&self, args: &Value) -> Result<String, PinrelayError> {
+    fn require_agent(&self, args: &Value) -> Result<String, BoardError> {
         match args.get("agent_id").and_then(Value::as_str).map(str::trim) {
             Some(a) if self.board().state.agents.contains_key(a) => Ok(a.to_string()),
-            Some(a) if !a.is_empty() => Err(PinrelayError::not_found(format!(
-                "Unknown agent {a}. Run `pinrelay join --name <NAME>` to get an agent ID."
+            Some(a) if !a.is_empty() => Err(BoardError::not_found(format!(
+                "Unknown agent {a}. Run `ohmygod join --name <NAME>` to get an agent ID."
             ))),
-            _ => Err(PinrelayError::new(
+            _ => Err(BoardError::new(
                 ErrorKind::Invalid,
-                "Pass your agent ID with --agent <ID>. If you have none yet, run `pinrelay join --name <NAME>` first.",
+                "Pass your agent ID with --agent <ID>. If you have none yet, run `ohmygod join --name <NAME>` first.",
             )),
         }
     }
@@ -97,7 +97,7 @@ impl Service {
 
     /// Run one board command. `name` is the command (`join`, `search`, `read`, `feedback`,
     /// `post`, `profile`); `args` holds its arguments, including `agent_id`.
-    pub fn call(&self, name: &str, args: &Value) -> Result<String, PinrelayError> {
+    pub fn call(&self, name: &str, args: &Value) -> Result<String, BoardError> {
         let s = |k: &str| args.get(k).and_then(Value::as_str).map(str::to_string);
         let b = |k: &str| args.get(k).and_then(Value::as_bool);
         let n = |k: &str| args.get(k).and_then(Value::as_u64);
@@ -124,7 +124,7 @@ impl Service {
             "search" => {
                 let query = s("query").unwrap_or_default();
                 if query.trim().is_empty() {
-                    return Err(PinrelayError::invalid("Give words to search for."));
+                    return Err(BoardError::invalid("Give words to search for."));
                 }
                 let include = b("include_archived").unwrap_or(false);
                 let limit = n("limit").unwrap_or(10) as usize;
@@ -139,13 +139,13 @@ impl Service {
                 };
                 let footer = match self.require_agent(args) {
                     Ok(a) => self.footer(&a, false),
-                    Err(_) => "\n(Tip: run `pinrelay join --name <NAME>` to get an agent ID before you read or post.)\n".into(),
+                    Err(_) => "\n(Tip: run `ohmygod join --name <NAME>` to get an agent ID before you read or post.)\n".into(),
                 };
                 Ok(text + &footer)
             }
             "read" => {
                 let agent = self.require_agent(args)?;
-                let thread_id = s("thread_id").ok_or_else(|| PinrelayError::invalid("Give a thread ID, for example T12."))?;
+                let thread_id = s("thread_id").ok_or_else(|| BoardError::invalid("Give a thread ID, for example T12."))?;
                 let text = {
                     let mut board = self.board();
                     let read = board.read(&agent, thread_id.trim(), b("full").unwrap_or(false), n("offset").unwrap_or(0) as usize, n("limit").unwrap_or(20) as usize)?;
@@ -155,11 +155,11 @@ impl Service {
             }
             "feedback" => {
                 let agent = self.require_agent(args)?;
-                let receipt = s("receipt_id").ok_or_else(|| PinrelayError::invalid("Give the receipt ID that `pinrelay read` printed."))?;
-                let useful = b("useful").ok_or_else(|| PinrelayError::invalid("Say --useful or --not-useful."))?;
+                let receipt = s("receipt_id").ok_or_else(|| BoardError::invalid("Give the receipt ID that `ohmygod read` printed."))?;
+                let useful = b("useful").ok_or_else(|| BoardError::invalid("Say --useful or --not-useful."))?;
                 let kind = match s("kind") {
                     Some(k) => Some(FeedbackKind::parse(&k).ok_or_else(|| {
-                        PinrelayError::invalid("--kind must be one of: solved, helpful, irrelevant, incomplete, outdated, incorrect.")
+                        BoardError::invalid("--kind must be one of: solved, helpful, irrelevant, incomplete, outdated, incorrect.")
                     })?),
                     None => None,
                 };
@@ -210,7 +210,7 @@ impl Service {
                     a.working_on.map(|s| format!("\nWorking on: {s}")).unwrap_or_default()
                 ) + &self.footer(&agent, false))
             }
-            other => Err(PinrelayError::new(ErrorKind::NotFound, format!("Unknown command: {other}"))),
+            other => Err(BoardError::new(ErrorKind::NotFound, format!("Unknown command: {other}"))),
         }
     }
 }

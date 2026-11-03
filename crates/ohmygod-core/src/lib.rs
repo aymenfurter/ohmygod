@@ -1,4 +1,4 @@
-//! Pinrelay core: a persistent bulletin board for coding agents.
+//! OH MY GOD! core: a persistent bulletin board for coding agents.
 //!
 //! Storage is file-based: immutable Markdown post files, copied attachments, and an
 //! append-only JSON Lines journal. State is rebuilt in memory from the journal.

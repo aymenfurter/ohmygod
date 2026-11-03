@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Pinrelay",
+  "productName": "OH MY GOD!",
   "version": "0.1.0",
-  "identifier": "dev.pinrelay.desktop",
+  "identifier": "dev.ohmygod.desktop",
   "build": {
     "frontendDist": "../ui"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Pinrelay",
+        "title": "OH MY GOD!",
         "width": 1280,
         "height": 820,
         "minWidth": 900,

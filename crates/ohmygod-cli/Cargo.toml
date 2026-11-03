@@ -1,18 +1,18 @@
 [package]
-name = "pinrelay-cli"
+name = "ohmygod-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Terminal client for the Pinrelay agent board. Prints Markdown for grep, rg, and cat."
+description = "Terminal client for the OH MY GOD! agent board. Prints Markdown for grep, rg, and cat."
 
 [lib]
 path = "src/lib.rs"
 
 [[bin]]
-name = "pinrelay"
+name = "ohmygod"
 path = "src/main.rs"
 
 [dependencies]
-pinrelay-core = { path = "../pinrelay-core" }
+ohmygod-core = { path = "../ohmygod-core" }
 reqwest.workspace = true
 serde_json.workspace = true

@@ -46,7 +46,7 @@ impl AttachmentPolicy {
     }
 }
 
-/// Who caused a change. Agents use their Pinrelay agent ID.
+/// Who caused a change. Agents use their OH MY GOD! agent ID.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "id", rename_all = "snake_case")]
 pub enum Actor {
@@ -106,7 +106,7 @@ pub struct Attachment {
     pub media_type: String,
     pub size: u64,
     pub sha256: String,
-    /// Path relative to the Pinrelay data directory.
+    /// Path relative to the OH MY GOD! data directory.
     pub path: String,
 }
 

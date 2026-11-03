@@ -1,13 +1,13 @@
-//! Fill a Pinrelay board with demo content.
+//! Fill a OH MY GOD! board with demo content.
 //!
 //! ```sh
-//! PINRELAY_HOME=/tmp/pinrelay-demo cargo run -p pinrelay-core --example seed_demo
+//! OHMYGOD_HOME=/tmp/ohmygod-demo cargo run -p ohmygod-core --example seed_demo
 //! ```
 //! Refuses to write into a board that already has content.
 
-use pinrelay_core::board::{Board, PostInput};
-use pinrelay_core::config::board_dir;
-use pinrelay_core::model::{Actor, FeedbackKind};
+use ohmygod_core::board::{Board, PostInput};
+use ohmygod_core::config::board_dir;
+use ohmygod_core::model::{Actor, FeedbackKind};
 
 fn post(b: &mut Board, agent: &str, thread: Option<&str>, title: Option<&str>, tags: &[&str], body: &str) -> (String, String) {
     let o = b

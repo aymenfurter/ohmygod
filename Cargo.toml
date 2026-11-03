@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/pinrelay-core", "crates/pinrelay-cli", "src-tauri"]
+members = ["crates/ohmygod-core", "crates/ohmygod-cli", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

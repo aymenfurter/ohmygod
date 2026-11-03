@@ -1,7 +1,7 @@
 //! Moderator and supervisor: scheduled, restricted Copilot SDK sessions.
 //!
 //! Each run starts a Copilot runtime with `ClientMode::Empty`, no config discovery,
-//! no custom instructions, and an allowlist that contains only Pinrelay's own tools.
+//! no custom instructions, and an allowlist that contains only the board's own tools.
 //! The model can only call typed tools that the board validates in code.
 
 use std::collections::HashMap;
@@ -11,12 +11,12 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Local, Utc};
-use pinrelay_core::config::{pinrelay_home, Settings, WorkerSettings};
-use pinrelay_core::service::Service;
-use pinrelay_core::model::{Actor, WorkerRun};
-use pinrelay_core::render;
-use pinrelay_core::setup::find_copilot_cli;
-use pinrelay_core::views;
+use ohmygod_core::config::{data_home, Settings, WorkerSettings};
+use ohmygod_core::service::Service;
+use ohmygod_core::model::{Actor, WorkerRun};
+use ohmygod_core::render;
+use ohmygod_core::setup::find_copilot_cli;
+use ohmygod_core::views;
 use github_copilot_sdk::handler::ApproveAllHandler;
 use github_copilot_sdk::tool::ToolHandler;
 use github_copilot_sdk::types::{
@@ -97,7 +97,7 @@ pub fn evaluate(svc: &Service, workers: &Workers, settings: &Settings, name: &st
     } else if !ws.enabled {
         ("disabled", "Paused. No model requests.".to_string(), false)
     } else if !access {
-        ("stopped", "Pinrelay access is stopped. Workers do not run.".to_string(), false)
+        ("stopped", "OH MY GOD! access is stopped. Workers do not run.".to_string(), false)
     } else if find_copilot_cli(settings.copilot_cli_path.as_deref()).is_none() {
         ("no_cli", "Copilot CLI not found. Set its path in Setup.".to_string(), false)
     } else if credits_today >= settings.daily_credit_budget {
@@ -126,7 +126,7 @@ fn board_last_ok(svc: &Service, name: &str) -> Option<DateTime<Utc>> {
     svc.board().state.runs.iter().rev().find(|r| r.worker == name && r.status == "ok").map(|r| r.finished_at)
 }
 
-fn changed_for(board: &pinrelay_core::board::Board, name: &str, checkpoint: u64) -> Vec<(String, u64)> {
+fn changed_for(board: &ohmygod_core::board::Board, name: &str, checkpoint: u64) -> Vec<(String, u64)> {
     board
         .changed_threads(checkpoint)
         .into_iter()
@@ -211,8 +211,8 @@ impl BoardTool {
                     .unwrap_or_default();
                 board.set_rules(actor, rules, &reason).map(|_| format!("updated rules: {reason}"))
             }
-            "stop_pinrelay" => {
-                board.set_access(actor, false, &reason).map(|_| format!("stopped Pinrelay access: {reason}"))
+            "stop_board" => {
+                board.set_access(actor, false, &reason).map(|_| format!("stopped OH MY GOD! access: {reason}"))
             }
             other => return Err(format!("Unknown tool {other}")),
         };
@@ -301,8 +301,8 @@ fn tool_specs(worker: &str) -> Vec<(String, String, Value)> {
                 }),
             ),
             (
-                "stop_pinrelay".into(),
-                "Stop all agent access to Pinrelay. Only for severe, active harm. Only the user can restart it.".into(),
+                "stop_board".into(),
+                "Stop all agent access to the board. Only for severe, active harm. Only the user can restart it.".into(),
                 json!({
                     "type": "object",
                     "properties": { "reason": { "type": "string" } },
@@ -329,7 +329,7 @@ pub async fn run_worker(svc: Arc<Service>, workers: &Workers, settings: Settings
     let (prompt, allowed, reviewed_through, count) = {
         let board = svc.board();
         if !board.state.access_running() {
-            return Err("Pinrelay access is stopped.".into());
+            return Err("OH MY GOD! access is stopped.".into());
         }
         let checkpoint = board.state.checkpoints.get(name).copied().unwrap_or(0);
         let changed = changed_for(&board, name, checkpoint);
@@ -433,14 +433,14 @@ async fn session_run(
     prompt: &str,
     log: ActionLog,
 ) -> Result<(String, Metrics), (String, Metrics)> {
-    let workdir = pinrelay_home().join("workers").join(name);
+    let workdir = data_home().join("workers").join(name);
     let _ = std::fs::create_dir_all(&workdir);
     let mut options = ClientOptions::default();
     options.program = CliProgram::Path(cli.clone());
     options.working_directory = workdir.clone();
     options.mode = ClientMode::Empty;
     // Isolated runtime home: workers never load the user's MCP servers, instructions, or plugins.
-    let home = pinrelay_home().join("workers").join("copilot-home");
+    let home = data_home().join("workers").join("copilot-home");
     if let Err(e) = share_login(&home) {
         return Err((e, Metrics::default()));
     }
@@ -487,7 +487,7 @@ async fn session_run(
         .with_enable_config_discovery(false)
         .with_working_directory(workdir)
         .with_session_limits(SessionLimitsConfig {
-            max_ai_credits: Some(settings.run_credit_budget.max(pinrelay_core::config::MIN_RUN_CREDIT_LIMIT)),
+            max_ai_credits: Some(settings.run_credit_budget.max(ohmygod_core::config::MIN_RUN_CREDIT_LIMIT)),
         })
         .with_system_message(SystemMessageConfig::new().with_mode("append").with_content(ws.prompt.clone()))
         .with_permission_handler(Arc::new(ApproveAllHandler));
@@ -529,14 +529,14 @@ async fn session_run(
 
 /// Copy only the Copilot login (host and user name) from the user's Copilot config into the
 /// isolated worker home, so the runtime knows which keychain token to use.
-/// Pinrelay never reads or stores the token itself.
+/// OH MY GOD! never reads or stores the token itself.
 fn share_login(home: &std::path::Path) -> Result<(), String> {
     fn read(p: &std::path::Path) -> serde_json::Map<String, serde_json::Value> {
         let text = std::fs::read_to_string(p).unwrap_or_default();
         let json: String = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
         serde_json::from_str::<serde_json::Value>(&json).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default()
     }
-    let user = read(&pinrelay_core::setup::copilot_home().join("config.json"));
+    let user = read(&ohmygod_core::setup::copilot_home().join("config.json"));
     if !user.get("loggedInUsers").and_then(|v| v.as_array()).is_some_and(|a| !a.is_empty()) {
         return Err("You are not logged in to the Copilot CLI. Run `copilot` in a terminal and use /login, then try again.".into());
     }
@@ -554,7 +554,7 @@ fn share_login(home: &std::path::Path) -> Result<(), String> {
     }
     if changed {
         let text = serde_json::to_string_pretty(&serde_json::Value::Object(cfg)).map_err(|e| e.to_string())?;
-        pinrelay_core::store::write_atomic(&path, text.as_bytes()).map_err(|e| e.to_string())?;
+        ohmygod_core::store::write_atomic(&path, text.as_bytes()).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

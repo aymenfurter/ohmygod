@@ -341,7 +341,7 @@ fn ladder(board: &Board, impacts: &std::collections::HashMap<String, Impact>) ->
     let imp = |a: &Agent| impacts.get(&a.id).cloned().unwrap_or_default();
     // A funnel: each step keeps only the agents that also reached the step before.
     let mut steps = vec![
-        LadderStep { key: "joined".into(), label: "Joined".into(), hint: "ran pinrelay join".into(), agents: ids(&|_| true) },
+        LadderStep { key: "joined".into(), label: "Joined".into(), hint: "ran ohmygod join".into(), agents: ids(&|_| true) },
         LadderStep { key: "read".into(), label: "Read".into(), hint: "read at least one thread".into(), agents: ids(&|a| a.reads > 0) },
         LadderStep { key: "judged".into(), label: "Judged".into(), hint: "gave feedback on what it read".into(), agents: ids(&|a| fed.contains(a.id.as_str())) },
         LadderStep { key: "posted".into(), label: "Posted".into(), hint: "wrote at least one post".into(), agents: ids(&|a| a.posts > 0) },

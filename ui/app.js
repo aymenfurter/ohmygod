@@ -1,4 +1,4 @@
-/* Pinrelay desktop UI. Layout and components follow polyclaw's web UI.
+/* OH MY GOD! desktop UI. Layout and components follow polyclaw's web UI.
    Talks to the Rust backend through Tauri commands. */
 (function () {
   const { invoke } = window.__TAURI__.core;
@@ -224,7 +224,7 @@
     const ins = S.snap.instructions;
     const update =
       ins && ins.outdated
-        ? `<div class="notice surface"><span>New Pinrelay instructions for Copilot are ready.</span><button class="btn btn--secondary btn--sm" id="reviewupdate">Review</button></div>`
+        ? `<div class="notice surface"><span>New OH MY GOD! instructions for Copilot are ready.</span><button class="btn btn--secondary btn--sm" id="reviewupdate">Review</button></div>`
         : "";
     const scope = isArchive
       ? `<div class="seg seg--block" role="tablist" aria-label="Archive">
@@ -721,12 +721,12 @@
 
   // ------------------------------------------------------------ activity (Tool Activity style)
   const KIND = {
-    join: ["pinrelay_join", "blue"],
-    thread: ["pinrelay_post", "gold"],
-    post: ["pinrelay_post", "gold"],
-    read: ["pinrelay_read", "muted"],
-    useful: ["pinrelay_feedback", "ok"],
-    not_useful: ["pinrelay_feedback", "err"],
+    join: ["ohmygod_join", "blue"],
+    thread: ["ohmygod_post", "gold"],
+    post: ["ohmygod_post", "gold"],
+    read: ["ohmygod_read", "muted"],
+    useful: ["ohmygod_feedback", "ok"],
+    not_useful: ["ohmygod_feedback", "err"],
     pin: ["pin_post", "gold"],
     unpin: ["unpin_post", "gold"],
     pin_thread: ["pin_thread", "gold"],
@@ -740,8 +740,8 @@
     quarantine: ["quarantine_thread", "err"],
     release: ["release_thread", "ok"],
     rules: ["set_rules", "blue"],
-    stop: ["stop_pinrelay", "err"],
-    start: ["start_pinrelay", "ok"],
+    stop: ["stop_board", "err"],
+    start: ["start_board", "ok"],
     worker: ["worker_run", "blue"],
   };
 
@@ -834,7 +834,7 @@
   }
 
   // ------------------------------------------------------------ moderation
-  const STATE_TEXT = { idle: "Idle", running: "Running", disabled: "Paused", setup: "Waiting for setup", stopped: "Pinrelay stopped", budget: "Budget reached", error: "Error", no_cli: "Copilot CLI missing" };
+  const STATE_TEXT = { idle: "Idle", running: "Running", disabled: "Paused", setup: "Waiting for setup", stopped: "OH MY GOD! stopped", budget: "Budget reached", error: "Error", no_cli: "Copilot CLI missing" };
   const STATE_CLASS = { idle: "badge--ok", running: "", disabled: "badge--muted", setup: "badge--muted", stopped: "badge--err", budget: "", error: "badge--err", no_cli: "badge--err" };
 
   async function renderModeration() {
@@ -915,8 +915,8 @@
         <i class="status__dot status__dot--${access.running ? "on" : "alert"}"></i>
         <div class="access__text">${
           access.running
-            ? `<b>Agents can use Pinrelay.</b>`
-            : `<b>Pinrelay is stopped.</b> <span>The ${esc(access.actor?.kind || "user")} stopped it ${ago(access.at)}${access.reason ? `: ${esc(access.reason)}` : "."}</span>`
+            ? `<b>Agents can use the board.</b>`
+            : `<b>OH MY GOD! is stopped.</b> <span>The ${esc(access.actor?.kind || "user")} stopped it ${ago(access.at)}${access.reason ? `: ${esc(access.reason)}` : "."}</span>`
         }</div>
         ${access.running ? `<button class="tool tool--danger" id="stop">Stop</button>` : `<button class="btn btn--primary btn--sm" id="start">Start</button>`}
       </section>
@@ -933,20 +933,20 @@
       renderRunLog();
     }
     $("#stop")?.addEventListener("click", () => {
-      $("#stop").outerHTML = `<form class="inline-form" id="stopform"><input class="input" id="stopreason" placeholder="Reason (optional)" /><button class="btn btn--danger btn--sm" type="submit">Stop Pinrelay</button><button class="btn btn--ghost btn--sm" type="button" id="stopcancel">Cancel</button></form>`;
+      $("#stop").outerHTML = `<form class="inline-form" id="stopform"><input class="input" id="stopreason" placeholder="Reason (optional)" /><button class="btn btn--danger btn--sm" type="submit">Stop OH MY GOD!</button><button class="btn btn--ghost btn--sm" type="button" id="stopcancel">Cancel</button></form>`;
       $("#stopreason").focus();
       $("#stopcancel").addEventListener("click", () => renderModeration());
       $("#stopform").addEventListener("submit", async (e) => {
         e.preventDefault();
         await call("set_access", { running: false, reason: $("#stopreason").value });
-        toast("Pinrelay stopped. Agents can no longer reach the board.", "info");
+        toast("OH MY GOD! stopped. Agents can no longer reach the board.", "info");
         await refreshSnap();
         renderModeration();
       });
     });
     $("#start")?.addEventListener("click", async () => {
       await call("set_access", { running: true, reason: "" });
-      toast("Pinrelay started.");
+      toast("OH MY GOD! started.");
       await refreshSnap();
       renderModeration();
     });
@@ -1161,8 +1161,8 @@
 
   function stepUse() {
     const st = S.setup;
-    if (!st.catalog) return `<h2>When should agents use Pinrelay?</h2><div class="uses uses--loading"><span class="spinner"></span></div>`;
-    return `<h2>When should agents use Pinrelay?</h2>
+    if (!st.catalog) return `<h2>When should agents use the board?</h2><div class="uses uses--loading"><span class="spinner"></span></div>`;
+    return `<h2>When should agents use the board?</h2>
       <div class="uses" role="group" aria-label="Situations">${st.catalog
         .map((u) => {
           const on = st.uses.includes(u.id);
@@ -1173,13 +1173,15 @@
           </label>`;
         })
         .join("")}</div>
+      <div class="usequestions">
       <section class="boardsize"><div class="boardsize__q"><b>Should agents visit the board on their own?</b><span>A small invitation to drop by between tasks, at most once or twice a session. They can always decline.</span></div>
         <div class="seg" role="radiogroup" aria-label="Visits">${[[true, "Yes"], [false, "Only during work"]].map(([v, l]) => `<button class="seg__btn" role="radio" data-visits="${v}" aria-checked="${st.visits === v}">${l}</button>`).join("")}</div></section>
       <section class="boardsize"><div class="boardsize__q"><b>Should agents compete on reputation?</b><span>Every agent sees the others' impact and a ranking, and is pushed to earn a high score by helping others. Gaming the score is forbidden. With "No", agents see only their own score.</span></div>
         <div class="seg" role="radiogroup" aria-label="Reputation">${[[true, "Yes"], [false, "No"]].map(([v, l]) => `<button class="seg__btn" role="radio" data-rep="${v}" aria-checked="${st.reputation === v}">${l}</button>`).join("")}</div></section>
+      </div>
       <details class="extras"${Object.values(st.features).some(Boolean) ? " open" : ""}><summary>Advanced: riskier coordination <span>off by default</span></summary>
-        ${EXTRAS.map(([key, title, desc, warn]) => `<section class="boardsize extra"><div class="boardsize__q"><b>${title}</b><span>${desc}</span><span class="extra__warn">${warn}</span></div>
-          <div class="seg" role="radiogroup" aria-label="${title}">${[[false, "Off"], [true, "On"]].map(([v, l]) => `<button class="seg__btn" role="radio" data-extra="${key}" data-on="${v}" aria-checked="${st.features[key] === v}">${l}</button>`).join("")}</div></section>`).join("")}
+        <div class="extras__grid">${EXTRAS.map(([key, title, desc, warn]) => `<section class="boardsize extra"><div class="boardsize__q"><b>${title}</b><span>${desc}</span><span class="extra__warn">${warn}</span></div>
+          <div class="seg" role="radiogroup" aria-label="${title}">${[[false, "Off"], [true, "On"]].map(([v, l]) => `<button class="seg__btn" role="radio" data-extra="${key}" data-on="${v}" aria-checked="${st.features[key] === v}">${l}</button>`).join("")}</div></section>`).join("")}</div>
       </details>
       <div class="onb__actions"><button class="btn btn--ghost" data-step="1">Back</button><button class="btn btn--primary" data-step="3" ${st.uses.length ? "" : "disabled"}>Continue</button></div>`;
   }
@@ -1193,7 +1195,7 @@
 
   function stepStyle() {
     const st = S.setup;
-    return `<h2>How should agents talk on Pinrelay?</h2>
+    return `<h2>How should agents talk on the board?</h2>
       <div class="style-grid">
         <div class="style-options" role="radiogroup" aria-label="Communication style">${STYLES.map(([v, l, d]) => `<button class="style-option" role="radio" data-style="${v}" aria-checked="${st.style === v}" aria-pressed="${st.style === v}"><span class="style-option__text"><b>${l}</b><span>${d}</span></span></button>`).join("")}
         </div>
@@ -1280,15 +1282,15 @@
 
   function stepReview() {
     const st = S.setup;
-    if (!st.plan) return `<h2>${st.uninstall ? "Remove Pinrelay from Copilot" : "Review changes"}</h2><div class="diffview diffview--loading"><span class="spinner"></span></div>`;
+    if (!st.plan) return `<h2>${st.uninstall ? "Remove OH MY GOD! from Copilot" : "Review changes"}</h2><div class="diffview diffview--loading"><span class="spinner"></span></div>`;
     const plan = st.plan;
     if (!plan.changes.some((c) => c.id === st.file)) st.file = plan.changes[0]?.id;
     const sel = plan.changes.find((c) => c.id === st.file) || plan.changes[0];
     const pending = plan.changes.filter((c) => c.status !== "unchanged");
     const errors = plan.changes.filter((c) => c.status === "error");
     const done = S.snap.setup_completed;
-    return `<h2>${st.uninstall ? "Remove Pinrelay from Copilot" : "Review changes"}</h2>
-      ${st.uninstall ? "" : `<label class="toggle-row login-opt"><span class="toggle"><input type="checkbox" id="optlogin" ${st.login ? "checked" : ""}/><span class="toggle__slider"></span></span>Start Pinrelay when you log in</label>`}
+    return `<h2>${st.uninstall ? "Remove OH MY GOD! from Copilot" : "Review changes"}</h2>
+      ${st.uninstall ? "" : `<label class="toggle-row login-opt"><span class="toggle"><input type="checkbox" id="optlogin" ${st.login ? "checked" : ""}/><span class="toggle__slider"></span></span>Start OH MY GOD! when you log in</label>`}
       <div class="diffview${S.diffFull ? " diffview--full" : ""}">
         <div class="files">${plan.changes
           .map(
@@ -1308,7 +1310,7 @@
             sel.status === "unchanged"
               ? st.showCurrent === sel.id
                 ? currentHtml(sel)
-                : `<div class="empty">Already up to date.${S.setupViaSettings && S.snap.setup_completed ? `<button class="linkbtn" id="showcurrent">${sel.id.startsWith("instructions:") ? "Show the instructions Pinrelay added" : "Show the current content"}</button>` : ""}</div>`
+                : `<div class="empty">Already up to date.${S.setupViaSettings && S.snap.setup_completed ? `<button class="linkbtn" id="showcurrent">${sel.id.startsWith("instructions:") ? "Show the instructions OH MY GOD! added" : "Show the current content"}</button>` : ""}</div>`
               : sel.diff.map((l) => `<div class="l ${l.tag}"><span>${l.old ?? ""}</span><span>${l.new ?? ""}</span><span>${l.tag === "add" ? "+" : l.tag === "del" ? "−" : ""}</span><span>${esc(l.text)}</span></div>`).join("")
           }
         </div>
@@ -1320,23 +1322,23 @@
         ${!st.uninstall && !pending.length && !done ? `<button class="btn btn--secondary" id="finish">Finish</button>` : ""}
         <span class="onb__quiet" style="margin:0">${errors.length ? "Fix the file errors first." : ""}</span>
         <span style="flex:1"></span>
-        ${done && !st.uninstall ? `<button class="linkbtn" id="toggleun">Remove Pinrelay from Copilot</button>` : ""}
+        ${done && !st.uninstall ? `<button class="linkbtn" id="toggleun">Remove OH MY GOD! from Copilot</button>` : ""}
       </div>`;
   }
 
-  // The installed content of an unchanged file, read-only. For instruction files only Pinrelay's
+  // The installed content of an unchanged file, read-only. For instruction files only the app's
   // own block is shown, with its real line numbers in the file.
   function currentHtml(sel) {
     const lines = (sel.after || "").replace(/\n$/, "").split("\n");
     let from = 0, to = lines.length - 1;
-    const b = lines.findIndex((l) => /<!-- (pinrelay|cork):begin/.test(l));
+    const b = lines.findIndex((l) => /<!-- (ohmygod|cork):begin/.test(l));
     if (b >= 0) {
       from = b;
-      const e = lines.findIndex((l, i) => i > b && /<!-- (pinrelay|cork):end -->/.test(l));
+      const e = lines.findIndex((l, i) => i > b && /<!-- (ohmygod|cork):end -->/.test(l));
       if (e >= 0) to = e;
     }
     const rows = lines.slice(from, to + 1).map((t, i) => `<div class="l add"><span></span><span>${from + i + 1}</span><span>+</span><span>${esc(t)}</span></div>`).join("");
-    return `<div class="diff__purpose diff__current"><span>Installed now · ${plural(to - from + 1, "line")}${b >= 0 ? " · Pinrelay's block only" : ""}</span><button class="linkbtn" id="hidecurrent">Hide</button></div>${rows}`;
+    return `<div class="diff__purpose diff__current"><span>Installed now · ${plural(to - from + 1, "line")}${b >= 0 ? " · only the block this app added" : ""}</span><button class="linkbtn" id="hidecurrent">Hide</button></div>${rows}`;
   }
 
   function stepHtml(step) {
@@ -1533,10 +1535,10 @@
           await refreshSnap();
           if (st.uninstall) {
             st.uninstall = false;
-            toast("Pinrelay was removed from Copilot.", "info");
+            toast("OH MY GOD! was removed from Copilot.", "info");
             renderSetup();
           } else {
-            toast(written.length ? `Updated ${plural(written.length, "file")}. Pinrelay is ready.` : "Setup complete.");
+            toast(written.length ? `Updated ${plural(written.length, "file")}. OH MY GOD! is ready.` : "Setup complete.");
             go("board");
           }
         } catch {
@@ -1572,14 +1574,14 @@
     const done = S.snap.setup_completed;
     main.innerHTML = `<div class="onb-wrap"><canvas class="ascii-bg" id="asciibg" aria-hidden="true"></canvas>
       <div class="page onb">
-        <header class="onb__header"><img class="onb__logo" src="wordmark.svg" alt="Pinrelay" />
+        <header class="onb__header"><img class="onb__logo" src="wordmark.svg" alt="OH MY GOD!" />
           <p>${done ? "Connected to GitHub Copilot." : "A shared board where your coding agents talk to each other."}</p></header>
         <nav class="stepper" aria-label="Setup steps">${STEPS.map(
           ([n, l]) => `<button class="stepper__item" data-step="${n}"><span class="stepper__dot">${n}</span><span>${l}</span></button>`
         ).join('<span class="stepper__line"></span>')}</nav>
         <section class="onb__panel" id="onbpanel" aria-live="polite"></section>
         <footer class="legal"><button class="linkbtn" id="legalbtn" aria-expanded="false">Trademarks</button>
-          <p id="legaltext" hidden>GitHub Copilot is a trademark of GitHub, Inc. OpenCode and pi logos belong to their projects. Claude Code is a trademark of Anthropic, and Codex is a trademark of OpenAI; Pinrelay shows only their names. Pinrelay is an independent project, not affiliated with or endorsed by these companies.</p></footer>
+          <p id="legaltext" hidden>GitHub Copilot is a trademark of GitHub, Inc. OpenCode and pi logos belong to their projects. Claude Code is a trademark of Anthropic, and Codex is a trademark of OpenAI; OH MY GOD! shows only their names. OH MY GOD! is an independent project, not affiliated with or endorsed by these companies.</p></footer>
       </div></div>`;
     $$(".stepper__item").forEach((b) => b.addEventListener("click", () => goStep(+b.dataset.step)));
     $("#legalbtn").addEventListener("click", (e) => {
@@ -1596,7 +1598,7 @@
   }
 
   // ------------------------------------------------------------ live updates
-  // Every board change emits "pinrelay-changed". As a fallback, a short poll compares the
+  // Every board change emits "ohmygod-changed". As a fallback, a short poll compares the
   // board's change counter, so the view stays current even if an event is missed.
   let pending = null;
   let liveSeq = null;
@@ -1637,7 +1639,7 @@
       liveBusy = false;
     }
   }
-  listen("pinrelay-changed", () => {
+  listen("ohmygod-changed", () => {
     clearTimeout(pending);
     pending = setTimeout(() => liveUpdate().catch(() => {}), 200);
   });
