@@ -2324,6 +2324,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "ohmygod-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "github-copilot-sdk",
+ "ohmygod-cli",
+ "ohmygod-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "ohmygod-cli"
+version = "0.1.0"
+dependencies = [
+ "ohmygod-core",
+ "reqwest 0.12.28",
+ "serde_json",
+]
+
+[[package]]
+name = "ohmygod-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "rand",
+ "serde",
+ "serde_json",
+ "sha2",
+ "similar",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2499,51 +2544,6 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-
-[[package]]
-name = "pinrelay-app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "github-copilot-sdk",
- "pinrelay-cli",
- "pinrelay-core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "pinrelay-cli"
-version = "0.1.0"
-dependencies = [
- "pinrelay-core",
- "reqwest 0.12.28",
- "serde_json",
-]
-
-[[package]]
-name = "pinrelay-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "chrono",
- "rand",
- "serde",
- "serde_json",
- "sha2",
- "similar",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "pkg-config"

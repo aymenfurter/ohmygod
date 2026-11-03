@@ -6,9 +6,9 @@ mod workers;
 
 use std::sync::{Arc, Mutex};
 
-use pinrelay_core::board::Board;
-use pinrelay_core::config::{board_dir, load_or_create_token, Settings};
-use pinrelay_core::service::Service;
+use ohmygod_core::board::Board;
+use ohmygod_core::config::{board_dir, load_or_create_token, Settings};
+use ohmygod_core::service::Service;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
@@ -24,23 +24,23 @@ fn show_main(app: &tauri::AppHandle) {
 }
 
 fn main() {
-    // Setup links `pinrelay` on the PATH to this binary; started under that name, it is the CLI.
+    // Setup links `ohmygod` on the PATH to this binary; started under that name, it is the CLI.
     let argv0 = std::env::args_os().next().unwrap_or_default();
-    if std::path::Path::new(&argv0).file_name().is_some_and(|n| n == "pinrelay") {
-        std::process::exit(match pinrelay_cli::main() {
+    if std::path::Path::new(&argv0).file_name().is_some_and(|n| n == "ohmygod" || n == "pinrelay") {
+        std::process::exit(match ohmygod_cli::main() {
             c if c == std::process::ExitCode::SUCCESS => 0,
             _ => 1,
         });
     }
-    pinrelay_core::config::migrate_legacy_home();
+    ohmygod_core::config::migrate_legacy_home();
     let settings = Settings::load();
-    let token = load_or_create_token().expect("create Pinrelay token");
-    let mut board = Board::open(&board_dir()).expect("open Pinrelay board");
+    let token = load_or_create_token().expect("create OH MY GOD! token");
+    let mut board = Board::open(&board_dir()).expect("open OH MY GOD! board");
     board.attachments = settings.attachments.clamped();
-    board.capacity = settings.active_threads.clamp(*pinrelay_core::model::ACTIVE_THREADS_RANGE.start(), *pinrelay_core::model::ACTIVE_THREADS_RANGE.end());
+    board.capacity = settings.active_threads.clamp(*ohmygod_core::model::ACTIVE_THREADS_RANGE.start(), *ohmygod_core::model::ACTIVE_THREADS_RANGE.end());
     board.reputation = settings.reputation;
     board.features = settings.features;
-    board.pin_capacity = settings.pinned_threads.clamp(*pinrelay_core::model::PINNED_THREADS_RANGE.start(), *pinrelay_core::model::PINNED_THREADS_RANGE.end());
+    board.pin_capacity = settings.pinned_threads.clamp(*ohmygod_core::model::PINNED_THREADS_RANGE.start(), *ohmygod_core::model::PINNED_THREADS_RANGE.end());
     let svc = Service::new(board, token, settings.port);
     let state = Arc::new(AppState {
         svc: svc.clone(),
@@ -70,11 +70,11 @@ fn main() {
                             if !st.svc.board().state.access_running() {
                                 st.stop_server().await;
                             }
-                            let _ = h.emit("pinrelay-changed", seq);
+                            let _ = h.emit("ohmygod-changed", seq);
                         }
                         // Missed some changes: still tell the UI to refresh.
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            let _ = h.emit("pinrelay-changed", 0u64);
+                            let _ = h.emit("ohmygod-changed", 0u64);
                         }
                         Err(_) => break,
                     }
@@ -83,14 +83,14 @@ fn main() {
 
             workers::spawn_scheduler(state.clone());
 
-            let open = MenuItem::with_id(app, "open", "Open Pinrelay", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit Pinrelay (agents lose access to the board)", true, None::<&str>)?;
+            let open = MenuItem::with_id(app, "open", "Open OH MY GOD!", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit OH MY GOD! (agents lose access to the board)", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &quit])?;
-            TrayIconBuilder::with_id("pinrelay")
+            TrayIconBuilder::with_id("ohmygod")
                 // A monochrome template image: macOS tints it for light and dark menu bars.
                 .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray@2x.png"))?)
                 .icon_as_template(true)
-                .tooltip("Pinrelay")
+                .tooltip("OH MY GOD!")
                 .menu(&menu)
                 .on_menu_event(|app, e| match e.id.as_ref() {
                     "open" => show_main(app),
@@ -138,7 +138,7 @@ fn main() {
             commands::set_thread_pinned,
         ])
         .build(tauri::generate_context!())
-        .expect("build Pinrelay");
+        .expect("build OH MY GOD!");
 
     app.run(|handle, event| {
         #[cfg(target_os = "macos")]

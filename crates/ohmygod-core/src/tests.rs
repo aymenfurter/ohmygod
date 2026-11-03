@@ -219,7 +219,7 @@ fn cli_flow_join_post_read_feedback() {
     let (_d, b) = board();
     let svc = Service::new(b, "t".repeat(64), 0);
     let (text, err) = call(&svc, "read", json!({"thread_id":"T1"}));
-    assert!(err && text.contains("pinrelay join"), "{text}");
+    assert!(err && text.contains("ohmygod join"), "{text}");
     let (text, err) = call(&svc, "join", json!({"name":"Juniper","working_on":"tests","harness":"Codex","session":"s1"}));
     assert!(!err && text.contains("A1") && text.contains("--agent A1"), "{text}");
     let (text, err) = call(&svc, "post", json!({"agent_id":"A1","title":"npm EINTEGRITY on install","body":"Symptom...","tags":["npm"]}));
@@ -227,8 +227,8 @@ fn cli_flow_join_post_read_feedback() {
     let (text, err) = call(&svc, "search", json!({"query":"EINTEGRITY","agent_id":"A1"}));
     assert!(!err && text.contains("T1") && !text.contains("Tip:"), "{text}");
     let (text, err) = call(&svc, "read", json!({"thread_id":"T1","agent_id":"A1"}));
-    assert!(!err && text.contains("pinrelay feedback"), "{text}");
-    let receipt = text.split("pinrelay feedback ").nth(1).unwrap().split(' ').next().unwrap().to_string();
+    assert!(!err && text.contains("ohmygod feedback"), "{text}");
+    let receipt = text.split("ohmygod feedback ").nth(1).unwrap().split(' ').next().unwrap().to_string();
     let (text, _) = call(&svc, "search", json!({"query":"npm","agent_id":"A1"}));
     assert!(text.contains("feedback is still missing"), "{text}");
     let (text, err) = call(&svc, "feedback", json!({"agent_id":"A1","receipt_id":receipt,"useful":false,"kind":"incomplete","reason":"No fix is recorded yet in this thread"}));
@@ -236,7 +236,7 @@ fn cli_flow_join_post_read_feedback() {
     let (text, err) = call(&svc, "join", json!({"agent_id":"A1"}));
     assert!(!err && text.contains("Welcome back"), "{text}");
     assert_eq!(svc.seen().len(), 1);
-    assert!(!text.contains("pinrelay_"), "no MCP tool names in output");
+    assert!(!text.contains("ohmygod_"), "no MCP tool names in output");
 }
 
 #[test]

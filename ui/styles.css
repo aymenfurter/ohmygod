@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════
-   PINRELAY — design system adopted from polyclaw (Monochrome Gold & Black)
+   OH MY GOD! — design system adopted from polyclaw (Monochrome Gold & Black)
    https://github.com/aymenfurter/polyclaw  app/frontend/src/styles/global.css
    ════════════════════════════════════════════════════════════════ */
 
@@ -337,7 +337,7 @@ body.onboarding .panel { display: none; }
 /* ── Setup ── */
 .onb-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
 .ascii-bg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.onb { position: relative; z-index: 1; max-width: 860px; width: 100%; margin: 0 auto; padding-top: 40px; display: flex; flex-direction: column; }
+.onb { position: relative; z-index: 1; max-width: 1000px; width: 100%; margin: 0 auto; padding-top: 40px; display: flex; flex-direction: column; }
 .onb__header { text-align: center; margin-bottom: 28px; }
 .onb__logo { height: 40px; width: auto; image-rendering: pixelated; display: block; margin: 0 auto 14px; }
 .onb__header p { color: var(--text-3); font-size: 14px; }
@@ -877,3 +877,29 @@ body { --font: "Helvetica Neue", Helvetica, Arial, sans-serif; --font-display: "
 .lad__n { font-size: 13px; font-weight: 600; color: var(--text); text-align: right; }
 .lad__kept { font-size: 12px; color: var(--text-2); text-align: right; }
 @media (max-width: 720px) { .lad__row { grid-template-columns: 70px 1fr 34px 40px; } .lad__hint { display: none; } }
+
+/* Setup step 2: questions side by side and compact feature cards, so the step fits the default window. */
+.usequestions { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.06); }
+.usequestions .boardsize { margin: 0; padding: 0; border: 0; flex-direction: column; align-items: flex-start; flex-wrap: nowrap; gap: 10px; }
+.extras { margin-top: 16px; padding-top: 12px; }
+.extras__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.extras .boardsize.extra { margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); flex-direction: column; align-items: flex-start; justify-content: space-between; flex-wrap: nowrap; gap: 10px; background: rgba(255,255,255,.02); }
+.extras .boardsize__q { gap: 4px; }
+@media (max-width: 960px) { .usequestions, .extras__grid { grid-template-columns: 1fr; } }
+.extras .boardsize.extra { position: relative; }
+.extras .boardsize.extra .seg { position: absolute; top: 9px; right: 10px; }
+.extras .boardsize.extra .boardsize__q b { padding-right: 92px; }
+.extras .boardsize.extra .seg__btn { padding: 3px 9px; font-size: 12px; }
+.onb { padding-top: 26px; }
+.usequestions { margin-top: 14px; padding-top: 12px; }
+.usequestions .boardsize { gap: 8px; }
+.extras { margin-top: 12px; padding-top: 10px; }
+.extras__grid { margin-top: 8px; }
+.extras .boardsize.extra { padding: 10px 12px; }
+.extras .boardsize__q span { font-size: 11.5px; line-height: 1.4; }
+.onb__panel h2 { margin-bottom: 12px; }
+.extras .boardsize.extra .boardsize__q b { display: block; min-height: 26px; line-height: 26px; margin-top: -2px; }
+.extras .boardsize.extra .seg { top: 8px; }
+.extras .boardsize.extra .boardsize__q b { min-height: 30px; line-height: 30px; margin-top: -4px; }
+.extras .boardsize.extra .boardsize__q b { min-height: 33px; }
+.onb { padding-top: 18px; }

@@ -1,12 +1,12 @@
 [package]
-name = "pinrelay-app"
+name = "ohmygod-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Pinrelay: a persistent bulletin board for coding agents"
+description = "OH MY GOD! A persistent bulletin board for coding agents"
 
 [[bin]]
-name = "pinrelay-app"
+name = "ohmygod-app"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -16,8 +16,8 @@ tauri-build = { version = "2", features = [] }
 anyhow.workspace = true
 async-trait = "0.1"
 chrono.workspace = true
-pinrelay-core = { path = "../crates/pinrelay-core" }
-pinrelay-cli = { path = "../crates/pinrelay-cli" }
+ohmygod-core = { path = "../crates/ohmygod-core" }
+ohmygod-cli = { path = "../crates/ohmygod-cli" }
 github-copilot-sdk = { version = "1.0.28", default-features = false, features = ["runtime"] }
 serde.workspace = true
 serde_json.workspace = true

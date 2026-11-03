@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use pinrelay_core::config::{Settings, Style, WorkerSettings};
-use pinrelay_core::model::Actor;
-use pinrelay_core::{setup, views};
+use ohmygod_core::config::{Settings, Style, WorkerSettings};
+use ohmygod_core::model::Actor;
+use ohmygod_core::{setup, views};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::State;
@@ -39,7 +39,7 @@ pub async fn snapshot(state: S<'_>) -> R<Snapshot> {
         workers: state.workers.snapshot(),
         setup_completed: settings.setup_completed,
         style: settings.style,
-        data_dir: pinrelay_core::config::pinrelay_home().display().to_string(),
+        data_dir: ohmygod_core::config::data_home().display().to_string(),
     })
 }
 
@@ -74,12 +74,12 @@ pub async fn agent_ladder(state: S<'_>) -> R<Vec<views::LadderStep>> {
 }
 
 #[tauri::command]
-pub async fn get_activity(state: S<'_>, include_reads: bool) -> R<Vec<pinrelay_core::model::ActivityItem>> {
+pub async fn get_activity(state: S<'_>, include_reads: bool) -> R<Vec<ohmygod_core::model::ActivityItem>> {
     Ok(views::activity(&state.svc.board(), include_reads, 300))
 }
 
 #[tauri::command]
-pub async fn list_runs(state: S<'_>) -> R<Vec<pinrelay_core::model::WorkerRun>> {
+pub async fn list_runs(state: S<'_>) -> R<Vec<ohmygod_core::model::WorkerRun>> {
     let board = state.svc.board();
     Ok(board.state.runs.iter().rev().take(100).cloned().collect())
 }
@@ -170,7 +170,7 @@ pub struct SettingsPatch {
     daily_credit_budget: Option<f64>,
     run_credit_budget: Option<f64>,
     copilot_cli_path: Option<String>,
-    attachments: Option<pinrelay_core::model::AttachmentPolicy>,
+    attachments: Option<ohmygod_core::model::AttachmentPolicy>,
     active_threads: Option<usize>,
     pinned_threads: Option<usize>,
 }
@@ -202,7 +202,7 @@ pub async fn save_settings(state: S<'_>, patch: SettingsPatch) -> R<Settings> {
         s.daily_credit_budget = v.max(0.0);
     }
     if let Some(v) = patch.run_credit_budget {
-        s.run_credit_budget = v.max(pinrelay_core::config::MIN_RUN_CREDIT_LIMIT);
+        s.run_credit_budget = v.max(ohmygod_core::config::MIN_RUN_CREDIT_LIMIT);
     }
     if let Some(v) = patch.copilot_cli_path {
         s.copilot_cli_path = Some(v.trim().to_string()).filter(|v| !v.is_empty());
@@ -230,9 +230,9 @@ pub async fn save_settings(state: S<'_>, patch: SettingsPatch) -> R<Settings> {
 #[tauri::command]
 pub fn reset_prompt(worker: String) -> String {
     if worker == "moderator" {
-        pinrelay_core::config::MODERATOR_PROMPT.into()
+        ohmygod_core::config::MODERATOR_PROMPT.into()
     } else {
-        pinrelay_core::config::SUPERVISOR_PROMPT.into()
+        ohmygod_core::config::SUPERVISOR_PROMPT.into()
     }
 }
 
@@ -262,9 +262,9 @@ pub async fn list_models(state: S<'_>) -> R<Vec<Value>> {
     let cli = setup::find_copilot_cli(settings.copilot_cli_path.as_deref()).ok_or("Copilot CLI not found.")?;
     let mut options = github_copilot_sdk::ClientOptions::default();
     options.program = github_copilot_sdk::CliProgram::Path(cli);
-    options.working_directory = pinrelay_core::config::pinrelay_home();
+    options.working_directory = ohmygod_core::config::data_home();
     options.mode = github_copilot_sdk::ClientMode::Empty;
-    options.base_directory = Some(pinrelay_core::config::pinrelay_home().join("workers").join("copilot-home"));
+    options.base_directory = Some(ohmygod_core::config::data_home().join("workers").join("copilot-home"));
     options.use_logged_in_user = Some(true);
     let client = github_copilot_sdk::Client::start(options)
     .await
@@ -297,7 +297,7 @@ fn app_path() -> Option<std::path::PathBuf> {
 
 #[tauri::command]
 pub fn launch_at_login() -> bool {
-    setup::launch_agent_path().exists()
+    setup::launch_agent_path().exists() || setup::legacy_launch_agent_path().exists()
 }
 
 fn known_harnesses(h: Vec<String>) -> Vec<String> {
@@ -314,14 +314,14 @@ pub async fn setup_plan(
     harnesses: Option<Vec<String>>,
     visits: Option<bool>,
     reputation: Option<bool>,
-    features: Option<pinrelay_core::model::Features>,
+    features: Option<ohmygod_core::model::Features>,
 ) -> R<setup::Plan> {
     let s = state.settings();
     let login = if login.unwrap_or_else(launch_at_login) { app_path() } else { None };
     let cli = std::env::current_exe().ok();
     let harnesses = known_harnesses(harnesses.unwrap_or(s.harnesses.clone()));
     tauri::async_runtime::spawn_blocking(move || {
-        let uses = pinrelay_core::instructions::normalize_uses(&uses.unwrap_or(s.uses.clone()));
+        let uses = ohmygod_core::instructions::normalize_uses(&uses.unwrap_or(s.uses.clone()));
         Ok::<_, String>(setup::plan(&setup::PlanOptions {
             style: style.unwrap_or(s.style),
             uses: &uses,
@@ -367,7 +367,7 @@ pub struct ApplyRequest {
     #[serde(default)]
     reputation: Option<bool>,
     #[serde(default)]
-    features: Option<pinrelay_core::model::Features>,
+    features: Option<ohmygod_core::model::Features>,
 }
 
 #[tauri::command]
@@ -376,7 +376,7 @@ pub async fn setup_apply(state: S<'_>, req: ApplyRequest) -> R<Vec<String>> {
     let approved: Vec<(String, Option<String>)> = req.approvals.into_iter().map(|a| (a.id, a.before_sha)).collect();
     let (style, uninstall) = (req.style, req.uninstall);
     let (moderator, supervisor) = (checked_worker(req.moderator)?, checked_worker(req.supervisor)?);
-    let uses = pinrelay_core::instructions::normalize_uses(&req.uses);
+    let uses = ohmygod_core::instructions::normalize_uses(&req.uses);
     let uses2 = uses.clone();
     let login = if req.login.unwrap_or_else(launch_at_login) { app_path() } else { None };
     let cli = std::env::current_exe().ok();
@@ -438,17 +438,17 @@ pub async fn setup_apply(state: S<'_>, req: ApplyRequest) -> R<Vec<String>> {
 }
 
 #[tauri::command]
-pub fn use_cases() -> Vec<pinrelay_core::instructions::UseCase> {
-    pinrelay_core::instructions::USE_CASES.to_vec()
+pub fn use_cases() -> Vec<ohmygod_core::instructions::UseCase> {
+    ohmygod_core::instructions::USE_CASES.to_vec()
 }
 
 #[tauri::command]
 pub fn open_path(path: String) -> R<()> {
-    let home = pinrelay_core::config::pinrelay_home();
+    let home = ohmygod_core::config::data_home();
     let p = std::path::PathBuf::from(&path);
-    // Only open files inside the Pinrelay data directory (attachments, backups) or the Copilot config dir.
+    // Only open files inside the OH MY GOD! data directory (attachments, backups) or the Copilot config dir.
     if !(p.starts_with(&home) || p.starts_with(setup::copilot_home())) {
-        return Err("Pinrelay opens only files in its data directory.".into());
+        return Err("OH MY GOD! opens only files in its data directory.".into());
     }
     let target = if p.is_file() { p.parent().map(|d| d.to_path_buf()).unwrap_or(p.clone()) } else { p.clone() };
     let mut cmd = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" });

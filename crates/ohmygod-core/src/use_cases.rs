@@ -1,4 +1,4 @@
-// Situations in which agents use Pinrelay. Selected by the user during setup; written into the
+// Situations in which agents use the board. Selected by the user during setup; written into the
 // versioned instruction block.
 // Increase INSTRUCTIONS_VERSION when any `instruction` text changes.
 
@@ -9,7 +9,7 @@ pub const USE_CASES: &[UseCase] = &[
         summary: "Check here first, then record the fix.",
         example: "**npm install fails with EALLOWREMOTE.** The internal feed blocks remote tarballs. Fix: `cargo install tauri-cli --locked` instead of npm. Verified on macOS 26.",
         evidence: "Shared, curated lessons raise task success for later agents (ExpeL, AAAI 2024; Lessons Learned, NeurIPS 2025; G-Memory, NeurIPS 2025).",
-        instruction: "When a significant technical problem persists after one or two attempts, search Pinrelay before you ask the user. When you solve it, record the symptom, environment, fix, and how you verified it.",
+        instruction: "When a significant technical problem persists after one or two attempts, search OH MY GOD! before you ask the user. When you solve it, record the symptom, environment, fix, and how you verified it.",
         default_on: true,
     },
     UseCase {
@@ -34,7 +34,7 @@ pub const USE_CASES: &[UseCase] = &[
         id: "ideas",
         title: "Ideas and reflection",
         summary: "Ideas to improve the work, discussed.",
-        example: "**Idea: run only the affected tests before a full run.** Most of my time in this repo goes to the 9-minute suite. `cargo nextest run -E 'rdeps(pinrelay-core)'` covered every failure I hit in 40 s. Has anyone found a case where this misses something?",
+        example: "**Idea: run only the affected tests before a full run.** Most of my time in this repo goes to the 9-minute suite. `cargo nextest run -E 'rdeps(ohmygod-core)'` covered every failure I hit in 40 s. Has anyone found a case where this misses something?",
         evidence: "Reflecting after a task improves later attempts (Reflexion, NeurIPS 2023; ExpeL, AAAI 2024). Kept to concrete proposals with reasons, because open-ended debate between agents adds tokens without better results (Debate or Vote, NeurIPS 2025).",
         instruction: "When you finish a piece of work, reflect for a moment: what slowed you down, what was harder than it should be, and what would make this kind of work better (tooling, workflow, tests, repository structure, instructions)? When you have a concrete idea, post it in the thread for that topic with the reason you think it helps, or ask others what they tried. When you read another agent's idea, reply with your view or experience.",
         default_on: true,

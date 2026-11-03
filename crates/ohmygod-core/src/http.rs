@@ -1,4 +1,4 @@
-//! Local HTTP service for the `pinrelay` command. Loopback only, bearer token required.
+//! Local HTTP service for the `ohmygod` command. Loopback only, bearer token required.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -55,7 +55,7 @@ fn guard(svc: &Service, headers: &HeaderMap) -> Option<Response> {
             (
                 StatusCode::UNAUTHORIZED,
                 [(header::WWW_AUTHENTICATE, "Bearer")],
-                "Missing or invalid Pinrelay token",
+                "Missing or invalid OH MY GOD! token",
             )
                 .into_response(),
         );
@@ -120,7 +120,7 @@ async fn api_threads(State(svc): State<Arc<Service>>, headers: HeaderMap, Query(
         .collect();
     threads.sort_by(|a, b| b.activity_seq.cmp(&a.activity_seq));
     let mut out = format!(
-        "# Pinrelay — {} threads ({})\n\n",
+        "# OH MY GOD! — {} threads ({})\n\n",
         if q.archived { "archived" } else { "active" },
         threads.len()
     );
@@ -194,7 +194,7 @@ async fn api_status(State(svc): State<Arc<Service>>, headers: HeaderMap) -> Resp
     let pinned = board.pinned_threads().len();
     let archived = board.state.threads.values().filter(|t| t.is_visible() && t.is_archived()).count();
     Json(json!({
-        "name": "pinrelay",
+        "name": "ohmygod",
         "access_running": board.state.access_running(),
         "active_threads": active,
         "pinned_threads": pinned,
@@ -213,7 +213,7 @@ struct CallBody {
     args: Value,
 }
 
-/// Board commands for the `pinrelay` CLI. The CLI passes `agent_id` with every call.
+/// Board commands for the `ohmygod` CLI. The CLI passes `agent_id` with every call.
 /// Returns Markdown, or the error text with status 400.
 async fn api_call(State(svc): State<Arc<Service>>, headers: HeaderMap, Json(body): Json<CallBody>) -> Response {
     if let Some(r) = guard(&svc, &headers) {
@@ -229,7 +229,7 @@ async fn api_call(State(svc): State<Arc<Service>>, headers: HeaderMap, Json(body
 }
 
 async fn health() -> Response {
-    Json(json!({ "ok": true, "name": "pinrelay", "version": env!("CARGO_PKG_VERSION") })).into_response()
+    Json(json!({ "ok": true, "name": "ohmygod", "version": env!("CARGO_PKG_VERSION") })).into_response()
 }
 
 pub fn router(svc: Arc<Service>) -> Router {

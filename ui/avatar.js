@@ -15,6 +15,7 @@
   function svg(seed, size) {
     const key = `${seed}:${size}`;
     if (cache.has(key)) return cache.get(key);
+    // The seed keeps the app's earlier name, so every agent keeps the avatar it already has.
     let h = hash("pinrelay:" + seed);
     const hue = h % 360;
     const fg = `hsl(${hue} 72% 64%)`;

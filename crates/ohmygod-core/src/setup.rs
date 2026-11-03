@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use similar::{ChangeTag, TextDiff};
 
-use crate::config::{pinrelay_home, home_dir, mcp_url, Style, SERVER_NAME};
+use crate::config::{data_home, home_dir, mcp_url, Style, SERVER_NAME};
 use crate::instructions::{instruction_block_with, remove_block, upsert_block};
 use crate::store::write_atomic;
 
@@ -82,7 +82,7 @@ pub struct InstructionsState {
     pub outdated: bool,
 }
 
-/// Agent tools Pinrelay sets up. All of them use the `pinrelay` CLI from their shell; they differ
+/// Agent tools OH MY GOD! sets up. All of them use the `ohmygod` CLI from their shell; they differ
 /// only in where their user-level instructions live. The file names match what Ruler
 /// (github.com/intellectronica/ruler) writes per project: CLAUDE.md for Claude Code, AGENTS.md
 /// for Codex, OpenCode, and pi.
@@ -115,7 +115,7 @@ pub fn harness_instructions_path(id: &str) -> Option<PathBuf> {
     })
 }
 
-/// Version of the Pinrelay blocks in the harness instruction files, checked on startup.
+/// Version of the OH MY GOD! blocks in the harness instruction files, checked on startup.
 /// The oldest installed block decides whether an update is offered.
 pub fn instructions_state() -> InstructionsState {
     let current = crate::instructions::INSTRUCTIONS_VERSION;
@@ -157,7 +157,7 @@ pub fn tilde(p: &Path) -> String {
 }
 
 /// Runtimes that SDK hosts (for example the Copilot app) download into caches are not the
-/// user's own installation. Pinrelay never selects them automatically.
+/// user's own installation. OH MY GOD! never selects them automatically.
 fn is_bundled_runtime(p: &Path) -> bool {
     let s = p.to_string_lossy();
     s.contains("github-copilot-sdk") || s.contains("copilot-sdk-runtime") || s.contains(".app/Contents/")
@@ -347,16 +347,16 @@ pub fn detect(configured_cli: Option<&str>) -> Vec<Harness> {
         detail: if !ipath.exists() {
             format!("{} does not exist yet. Setup creates it.", tilde(&ipath))
         } else if istate.outdated {
-            format!("Pinrelay block version {} in {}. Version {} is available.", istate.version.unwrap_or(1), tilde(&ipath), istate.current)
-        } else if icontent.contains("<!-- pinrelay:begin") {
-            format!("Pinrelay block version {} present in {}.", istate.current, tilde(&ipath))
+            format!("OH MY GOD! block version {} in {}. Version {} is available.", istate.version.unwrap_or(1), tilde(&ipath), istate.current)
+        } else if icontent.contains("<!-- ohmygod:begin") {
+            format!("OH MY GOD! block version {} present in {}.", istate.current, tilde(&ipath))
         } else {
-            format!("{} exists. Pinrelay block not present.", tilde(&ipath))
+            format!("{} exists. OH MY GOD! block not present.", tilde(&ipath))
         },
     });
     let link = cli_link();
     checks.push(Check {
-        label: "pinrelay command".into(),
+        label: "ohmygod command".into(),
         ok: link.installed,
         detail: if link.installed {
             format!("Linked at {}.", tilde(&link.path))
@@ -482,24 +482,29 @@ fn change(id: &str, label: &str, purpose: &str, path: &Path, before: Option<Stri
     }
 }
 
-/// Remove the `pinrelay` MCP entry that earlier versions registered. An entry that points
-/// elsewhere is not Pinrelay's and stays.
+/// Remove the `ohmygod` MCP entry that earlier versions registered. An entry that points
+/// elsewhere belongs to something else and stays.
 fn mcp_cleanup(before: &str, port: u16) -> Result<(String, Option<String>)> {
-    let mut root: Value = serde_json::from_str(before).context("The file is not valid JSON. Fix it by hand; Pinrelay will not overwrite it")?;
+    let mut root: Value = serde_json::from_str(before).context("The file is not valid JSON. Fix it by hand; OH MY GOD! will not overwrite it")?;
     let servers = root.get_mut("mcpServers").and_then(Value::as_object_mut).ok_or_else(|| anyhow!("`mcpServers` is not a JSON object"))?;
     if let Some(existing) = servers.get(SERVER_NAME) {
         if existing.get("url").and_then(Value::as_str) != Some(mcp_url(port).as_str()) {
-            return Ok((before.to_string(), Some(format!("The `{SERVER_NAME}` entry does not point to this Pinrelay app. Pinrelay keeps it."))));
+            return Ok((before.to_string(), Some(format!("The `{SERVER_NAME}` entry does not point to this OH MY GOD! app. OH MY GOD! keeps it."))));
         }
     }
     servers.remove(SERVER_NAME);
     Ok((serde_json::to_string_pretty(&root)? + "\n", None))
 }
 
-pub const LAUNCH_AGENT_LABEL: &str = "dev.pinrelay.desktop";
+pub const LAUNCH_AGENT_LABEL: &str = "dev.ohmygod.desktop";
 
 pub fn launch_agent_path() -> PathBuf {
     home_dir().join("Library/LaunchAgents").join(format!("{LAUNCH_AGENT_LABEL}.plist"))
+}
+
+/// The login item of the app's earlier name. Setup removes it.
+pub fn legacy_launch_agent_path() -> PathBuf {
+    home_dir().join("Library/LaunchAgents/dev.pinrelay.desktop.plist")
 }
 
 fn xml_escape(s: &str) -> String {
@@ -532,26 +537,27 @@ fn launch_agent_plist(app: &Path) -> String {
     )
 }
 
-// ---------------------------------------------------------------- pinrelay CLI on the PATH
+// ---------------------------------------------------------------- ohmygod CLI on the PATH
 
-const PROFILE_BEGIN: &str = "# pinrelay:begin (managed by the Pinrelay app)";
-const PROFILE_END: &str = "# pinrelay:end";
+const PROFILE_BEGIN: &str = "# ohmygod:begin (managed by the OH MY GOD! app)";
+const PROFILE_END: &str = "# ohmygod:end";
+const LEGACY_PROFILE: (&str, &str) = ("# pinrelay:begin", "# pinrelay:end");
 
 pub struct CliLink {
-    /// Where the `pinrelay` link goes.
+    /// Where the `ohmygod` link goes.
     pub path: PathBuf,
     /// The directory is on the login shell PATH. If not, setup adds it in the shell profile.
     pub in_path: bool,
     pub installed: bool,
-    /// Another `pinrelay` that the login shell finds first, if any.
+    /// Another `ohmygod` that the login shell finds first, if any.
     pub shadowed_by: Option<PathBuf>,
 }
 
-/// PATH of the user's login shell and what `pinrelay` resolves to there.
+/// PATH of the user's login shell and what `ohmygod` resolves to there.
 fn login_shell_path() -> (Vec<PathBuf>, Option<PathBuf>) {
     let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
     let out = std::process::Command::new(shell)
-        .args(["-lc", "printf '%s\\n' \"$PATH\"; command -v pinrelay 2>/dev/null"])
+        .args(["-lc", "printf '%s\\n' \"$PATH\"; command -v ohmygod 2>/dev/null"])
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .output();
@@ -566,7 +572,23 @@ fn writable_dir(p: &Path) -> bool {
     p.is_dir() && std::process::Command::new("/bin/test").arg("-w").arg(p).status().is_ok_and(|s| s.success())
 }
 
-/// Pick a user-writable directory on the login shell PATH for the `pinrelay` link.
+/// `pinrelay` links from the app's earlier name that point to an app binary. Links to anything
+/// else are not ours and stay.
+fn legacy_links() -> Vec<PathBuf> {
+    let home = home_dir();
+    [home.join(".local/bin"), home.join("bin"), home.join(".homebrew/bin"), PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")]
+        .iter()
+        .map(|d| d.join("pinrelay"))
+        .filter(|l| {
+            fs::read_link(l).is_ok_and(|t| {
+                let t = t.display().to_string();
+                t.contains("pinrelay-app") || t.contains("ohmygod-app") || t.contains(".app/Contents/MacOS/")
+            })
+        })
+        .collect()
+}
+
+/// Pick a user-writable directory on the login shell PATH for the `ohmygod` link.
 pub fn cli_link() -> CliLink {
     let home = home_dir();
     let (path, found) = login_shell_path();
@@ -576,7 +598,7 @@ pub fn cli_link() -> CliLink {
         .find(|d| path.contains(d) && writable_dir(d))
         .map(|d| (d.clone(), true))
         .unwrap_or((home.join(".local/bin"), false));
-    let link = dir.join("pinrelay");
+    let link = dir.join("ohmygod");
     let installed = fs::symlink_metadata(&link).is_ok_and(|m| m.file_type().is_symlink());
     let shadowed_by = found.filter(|f| in_path && f != &link);
     CliLink { path: link, in_path, installed, shadowed_by }
@@ -591,15 +613,19 @@ fn shell_profile() -> PathBuf {
     }
 }
 
-fn profile_after(before: &str, dir: Option<&Path>) -> String {
-    let mut out = match (before.find(PROFILE_BEGIN), before.find(PROFILE_END)) {
+fn strip_block(text: &str, begin: &str, end_marker: &str) -> String {
+    match (text.find(begin), text.find(end_marker)) {
         (Some(a), Some(b)) if b > a => {
-            let end = b + PROFILE_END.len();
-            let end = if before[end..].starts_with('\n') { end + 1 } else { end };
-            format!("{}{}", &before[..a], &before[end..])
+            let end = b + end_marker.len();
+            let end = if text[end..].starts_with('\n') { end + 1 } else { end };
+            format!("{}{}", &text[..a], &text[end..])
         }
-        _ => before.to_string(),
-    };
+        _ => text.to_string(),
+    }
+}
+
+fn profile_after(before: &str, dir: Option<&Path>) -> String {
+    let mut out = strip_block(&strip_block(before, PROFILE_BEGIN, PROFILE_END), LEGACY_PROFILE.0, LEGACY_PROFILE.1);
     if let Some(dir) = dir {
         let home = home_dir();
         let shown = match dir.strip_prefix(&home) {
@@ -619,15 +645,16 @@ fn link_target(p: &Path) -> Result<Option<String>> {
     match fs::symlink_metadata(p) {
         Err(_) => Ok(None),
         Ok(m) if m.file_type().is_symlink() => Ok(Some(format!("{}\n", fs::read_link(p)?.display()))),
-        Ok(_) => bail!("{} is a different program named pinrelay. Remove or rename it, then review again.", tilde(p)),
+        Ok(_) => bail!("{} is a different program named ohmygod. Remove or rename it, then review again.", tilde(p)),
     }
 }
 
 // ---------------------------------------------------------------- Claude Code permission
 
-const CLAUDE_RULE: &str = "Bash(pinrelay:*)";
+const CLAUDE_RULE: &str = "Bash(ohmygod:*)";
+const LEGACY_CLAUDE_RULE: &str = "Bash(pinrelay:*)";
 
-/// Let Claude Code run `pinrelay` without asking each time. Other settings stay as they are.
+/// Let Claude Code run `ohmygod` without asking each time. Other settings stay as they are.
 fn claude_settings_after(before: Option<&str>, remove: bool) -> Result<String> {
     let mut root: Value = match before {
         Some(s) if !s.trim().is_empty() => serde_json::from_str(s).map_err(|e| anyhow!("Not valid JSON ({e}). Setup will not change it."))?,
@@ -638,7 +665,7 @@ fn claude_settings_after(before: Option<&str>, remove: bool) -> Result<String> {
     let perms = perms.as_object_mut().ok_or_else(|| anyhow!("`permissions` is not an object."))?;
     let allow = perms.entry("allow").or_insert_with(|| json!([]));
     let list = allow.as_array_mut().ok_or_else(|| anyhow!("`permissions.allow` is not a list."))?;
-    list.retain(|v| v != CLAUDE_RULE);
+    list.retain(|v| v != CLAUDE_RULE && v != LEGACY_CLAUDE_RULE);
     if !remove {
         list.push(json!(CLAUDE_RULE));
     }
@@ -657,11 +684,11 @@ pub struct PlanOptions<'a> {
     pub features: crate::model::Features,
     pub port: u16,
     pub uninstall: bool,
-    /// Some(app) to start Pinrelay at login.
+    /// Some(app) to start OH MY GOD! at login.
     pub login: Option<&'a Path>,
     /// Harness IDs from [`HARNESSES`] to set up.
     pub harnesses: &'a [String],
-    /// Program the `pinrelay` link points to (the app binary).
+    /// Program the `ohmygod` link points to (the app binary).
     pub cli: Option<&'a Path>,
 }
 
@@ -669,7 +696,7 @@ pub struct PlanOptions<'a> {
 pub fn plan(o: &PlanOptions) -> Plan {
     let mut changes = vec![];
 
-    // The `pinrelay` command, and the PATH entry when its directory is not on the PATH yet.
+    // The `ohmygod` command, and the PATH entry when its directory is not on the PATH yet.
     let link = cli_link();
     let want_cli = if o.uninstall { None } else { o.cli };
     if want_cli.is_some() || link.installed {
@@ -680,29 +707,29 @@ pub fn plan(o: &PlanOptions) -> Plan {
         };
         let mut c = change(
             "cli",
-            "pinrelay command",
-            "Links the `pinrelay` command into your PATH, so that every agent tool can use the board from its shell. The link points to the Pinrelay app.",
+            "ohmygod command",
+            "Links the `ohmygod` command into your PATH, so that every agent tool can use the board from its shell. The link points to the OH MY GOD! app.",
             &link.path,
             before,
             after,
             want_cli.is_none(),
         );
         if c.warning.is_none() {
-            c.warning = link.shadowed_by.as_ref().map(|p| format!("Your shell finds another `pinrelay` first, at {}. Remove it so that agents use this one.", tilde(p)));
+            c.warning = link.shadowed_by.as_ref().map(|p| format!("Your shell finds another `ohmygod` first, at {}. Remove it so that agents use this one.", tilde(p)));
         }
         changes.push(c);
     }
     let profile = shell_profile();
     let pbefore = fs::read_to_string(&profile).ok();
     let need_path = want_cli.is_some() && !link.in_path;
-    let has_block = pbefore.as_deref().is_some_and(|s| s.contains(PROFILE_BEGIN));
+    let has_block = pbefore.as_deref().is_some_and(|s| s.contains(PROFILE_BEGIN) || s.contains(LEGACY_PROFILE.0));
     if need_path || has_block {
         let dir = link.path.parent().filter(|_| need_path);
         let after = profile_after(pbefore.as_deref().unwrap_or(""), dir);
         changes.push(change(
             "path",
             "Shell PATH",
-            "Adds the directory of the `pinrelay` command to your PATH. Open a new terminal afterwards.",
+            "Adds the directory of the `ohmygod` command to your PATH. Open a new terminal afterwards.",
             &profile,
             pbefore,
             Ok(after),
@@ -725,7 +752,7 @@ pub fn plan(o: &PlanOptions) -> Plan {
         changes.push(change(
             &format!("instructions:{id}"),
             &format!("{name} instructions"),
-            &format!("User-level instructions for {name}. Pinrelay adds one marked block that explains when and how agents use the board. Everything else stays as it is."),
+            &format!("User-level instructions for {name}. OH MY GOD! adds one marked block that explains when and how agents use the board. Everything else stays as it is."),
             &path,
             before,
             Ok(after),
@@ -737,12 +764,12 @@ pub fn plan(o: &PlanOptions) -> Plan {
     let cpath = claude_home().join("settings.json");
     let cbefore = fs::read_to_string(&cpath).ok();
     let claude = !o.uninstall && o.harnesses.iter().any(|h| h == "claude-code");
-    let has_rule = cbefore.as_deref().is_some_and(|s| s.contains(CLAUDE_RULE));
+    let has_rule = cbefore.as_deref().is_some_and(|s| s.contains(CLAUDE_RULE) || s.contains(LEGACY_CLAUDE_RULE));
     if claude || has_rule {
         changes.push(change(
             "claude-permission",
             "Claude Code permission",
-            "Allows Claude Code to run the `pinrelay` command without asking each time. Other settings stay as they are.",
+            "Allows Claude Code to run the `ohmygod` command without asking each time. Other settings stay as they are.",
             &cpath,
             cbefore.clone(),
             claude_settings_after(cbefore.as_deref(), !claude),
@@ -763,7 +790,7 @@ pub fn plan(o: &PlanOptions) -> Plan {
         changes.push(change(
             "mcp",
             "Old MCP server entry",
-            "Removes the Pinrelay MCP server that earlier versions registered. Agents now use the `pinrelay` command instead. Other servers stay as they are.",
+            "Removes the OH MY GOD! MCP server that earlier versions registered. Agents now use the `ohmygod` command instead. Other servers stay as they are.",
             &mpath,
             mbefore,
             after,
@@ -779,11 +806,36 @@ pub fn plan(o: &PlanOptions) -> Plan {
         changes.push(change(
             "login",
             "Start at login",
-            "Opens Pinrelay when you log in, so agents can reach the board right away. Turn it off in Setup to remove this file.",
+            "Opens OH MY GOD! when you log in, so agents can reach the board right away. Turn it off in Setup to remove this file.",
             &lpath,
             lbefore,
             Ok(want.map(launch_agent_plist).unwrap_or_default()),
             removing,
+        ));
+    }
+    // Leftovers from the app's earlier name: its command link and its login item.
+    for link in legacy_links() {
+        let before = link_target(&link).ok().flatten();
+        changes.push(change(
+            &format!("legacy-link:{}", link.display()),
+            "Old pinrelay command",
+            "Removes the `pinrelay` command from the app's earlier name. Agents now use `ohmygod`.",
+            &link,
+            before,
+            Ok(String::new()),
+            true,
+        ));
+    }
+    let old_login = legacy_launch_agent_path();
+    if let Ok(before) = fs::read_to_string(&old_login) {
+        changes.push(change(
+            "legacy-login",
+            "Old start-at-login item",
+            "Removes the login item of the app's earlier name. The new one is listed above when you turn on start at login.",
+            &old_login,
+            Some(before),
+            Ok(String::new()),
+            true,
         ));
     }
     let installed = changes.iter().all(|c| c.status == "unchanged") && !o.uninstall;
@@ -808,13 +860,20 @@ pub fn apply(approved: &[(String, Option<String>)], o: &PlanOptions) -> Result<V
             bail!("{} changed after you reviewed it. Review the new diff and approve again.", c.path);
         }
     }
-    let backups = pinrelay_home().join("backups");
+    let backups = data_home().join("backups");
     for (id, _) in approved {
         let c = current.changes.iter().find(|c| &c.id == id).unwrap();
         if c.status == "unchanged" {
             continue;
         }
         let path = PathBuf::from(&c.path);
+        if id.starts_with("legacy-link:") {
+            if fs::symlink_metadata(&path).is_ok() {
+                fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
+            }
+            written.push(c.path.clone());
+            continue;
+        }
         if id == "cli" {
             if fs::symlink_metadata(&path).is_ok() {
                 fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
@@ -838,7 +897,7 @@ pub fn apply(approved: &[(String, Option<String>)], o: &PlanOptions) -> Result<V
             );
             fs::copy(&path, backups.join(&name)).with_context(|| format!("back up {}", path.display()))?;
         }
-        if id == "login" && c.status == "remove" {
+        if (id == "login" || id == "legacy-login") && c.status == "remove" {
             fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
             written.push(c.path.clone());
             continue;
@@ -876,9 +935,9 @@ mod tests {
         let p = launch_agent_plist(Path::new("/Applications/Pin & Relay.app"));
         assert!(p.contains("<string>/usr/bin/open</string>"));
         assert!(p.contains("<string>/Applications/Pin &amp; Relay.app</string>"));
-        assert!(p.contains("<string>dev.pinrelay.desktop</string>"));
-        let dev = launch_agent_plist(Path::new("/tmp/pinrelay-app"));
-        assert!(!dev.contains("/usr/bin/open") && dev.contains("<string>/tmp/pinrelay-app</string>"));
+        assert!(p.contains("<string>dev.ohmygod.desktop</string>"));
+        let dev = launch_agent_plist(Path::new("/tmp/ohmygod-app"));
+        assert!(!dev.contains("/usr/bin/open") && dev.contains("<string>/tmp/ohmygod-app</string>"));
     }
 
     #[test]
@@ -889,7 +948,7 @@ mod tests {
         assert_eq!(after, again);
         let v: Value = serde_json::from_str(&after).unwrap();
         assert_eq!(v["model"], "opus");
-        assert_eq!(v["permissions"]["allow"], json!(["Bash(ls:*)", "Bash(pinrelay:*)"]));
+        assert_eq!(v["permissions"]["allow"], json!(["Bash(ls:*)", "Bash(ohmygod:*)"]));
         let removed: Value = serde_json::from_str(&claude_settings_after(Some(&after), true).unwrap()).unwrap();
         assert_eq!(removed["permissions"]["allow"], json!(["Bash(ls:*)"]));
         assert!(claude_settings_after(Some("{ nope"), false).is_err());
@@ -920,10 +979,23 @@ mod tests {
     }
 
     #[test]
-    fn foreign_pinrelay_entry_is_kept() {
+    fn foreign_mcp_entry_is_kept() {
         let before = r#"{"mcpServers":{"pinrelay":{"type":"local","command":"other"}}}"#;
         let (kept, w) = mcp_cleanup(before, 47821).unwrap();
         assert!(w.is_some());
         assert_eq!(kept, before);
+    }
+
+    #[test]
+    fn earlier_name_leftovers_are_replaced() {
+        let old = "# pinrelay:begin (managed by the Pinrelay app)\nexport PATH=\"$HOME/.local/bin:$PATH\"\n# pinrelay:end\nalias x=y\n";
+        let out = profile_after(old, None);
+        assert_eq!(out, "alias x=y\n");
+        let claude = r#"{"permissions":{"allow":["Bash(pinrelay:*)","Bash(ls:*)"]}}"#;
+        let v: Value = serde_json::from_str(&claude_settings_after(Some(claude), false).unwrap()).unwrap();
+        assert_eq!(v["permissions"]["allow"], json!(["Bash(ls:*)", "Bash(ohmygod:*)"]));
+        let block = "a\n<!-- pinrelay:begin version=19 (managed by the Pinrelay app) -->\nold\n<!-- pinrelay:end -->\nb\n";
+        let next = upsert_block(block, &crate::instructions::instruction_block(Style::Casual, &[], true));
+        assert!(!next.contains("pinrelay:begin") && next.matches("ohmygod:begin").count() == 1 && next.starts_with("a\n") && next.ends_with("b\n"));
     }
 }

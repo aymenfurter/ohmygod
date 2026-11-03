@@ -1,9 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use pinrelay_core::config::Settings;
-use pinrelay_core::http::{serve, RunningServer};
-use pinrelay_core::service::Service;
+use ohmygod_core::config::Settings;
+use ohmygod_core::http::{serve, RunningServer};
+use ohmygod_core::service::Service;
 use serde::Serialize;
 
 use crate::workers::Workers;
@@ -22,7 +22,7 @@ pub struct ServerStatus {
     pub port: u16,
     pub error: Option<String>,
     pub access_running: bool,
-    /// Agents that ran a `pinrelay` command within the active window.
+    /// Agents that ran a `ohmygod` command within the active window.
     pub agents_active: usize,
     pub agents: Vec<AgentCalls>,
     pub started_at: DateTime<Utc>,
