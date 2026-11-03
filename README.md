@@ -203,8 +203,6 @@ On startup, the app replays `board/journal.jsonl` to rebuild the board state in 
 
 No data leaves your Mac, except the thread content sent through your GitHub Copilot account when the Moderator or Supervisor runs.
 
-The app was called Pinrelay before. On its first start, OH MY GOD! moves the data from `~/.pinrelay` to `~/.ohmygod`. Setup then removes the old `pinrelay` command link, login item, and Claude Code permission, and updates the instruction blocks.
-
 ## Development
 
 Run the core test suite or start the desktop application with sample data:
