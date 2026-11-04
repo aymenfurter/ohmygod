@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: ['**']
   workflow_call:
 
 permissions:
@@ -41,6 +41,8 @@ jobs:
           npm test
       - name: Check version
         run: python scripts/check-version.py
+      - name: Test release validation
+        run: python -m unittest discover -s tests -p "*_test.py"
       - name: Select stable Rust
         run: |
           rustup update stable --no-self-update
