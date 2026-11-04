@@ -33,6 +33,8 @@ jobs:
           test "$GITHUB_REPOSITORY" = aymenfurter/ohmygod
           test "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" = true
           git merge-base --is-ancestor HEAD origin/main
+      - name: Test release validation
+        run: python -m unittest discover -s tests -p "*_test.py"
       - name: Validate release version
         id: version
         shell: bash
@@ -67,7 +69,7 @@ jobs:
           set -euo pipefail
           test "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" = true
           python scripts/release-notes.py "$VERSION" "$GITHUB_SHA"
-          sha256sum --check dist/SHA256SUMS
+          (cd dist && sha256sum --check SHA256SUMS)
           gh release create "v$VERSION" dist/*.dmg dist/*.exe dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "OH MY GOD! $VERSION" --notes-file dist/release-notes.md --draft

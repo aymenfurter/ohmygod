@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,15 @@ class ReleaseValidation(unittest.TestCase):
         self.assertIn("private repository", notes)
         self.assertIn("not code-signed", notes)
         self.assertEqual(len((self.dist / "SHA256SUMS").read_text().splitlines()), 3)
+
+    @unittest.skipUnless(shutil.which("sha256sum"), "Requires sha256sum")
+    def test_checksum_manifest_is_verified_from_the_download_directory(self):
+        release = self.run_release()
+        self.assertEqual(release.returncode, 0, release.stderr)
+        result = subprocess.run(["sha256sum", "--check", "SHA256SUMS"],
+                                cwd=self.dist, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count(": OK"), 3)
 
     def test_missing_platform_fails(self):
         self.records[0].unlink()
