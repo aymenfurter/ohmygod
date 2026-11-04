@@ -14,7 +14,11 @@ pub const SERVER_NAME: &str = "pinrelay";
 pub const MIN_RUN_CREDIT_LIMIT: f64 = 30.0;
 
 pub fn home_dir() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
+    #[cfg(windows)]
+    let key = "USERPROFILE";
+    #[cfg(not(windows))]
+    let key = "HOME";
+    std::env::var_os(key).filter(|p| !p.is_empty()).map(PathBuf::from).expect("user home directory is not set")
 }
 
 /// The app's earlier names. Their data directories, CLI links, and markers are migrated or removed.

@@ -2,3 +2,7 @@ target/
 node_modules/
 src-tauri/gen/
 .impeccable/
+src-tauri/binaries/
+dist/
+__pycache__/
+test-results/

@@ -1,0 +1,73 @@
+name: Build and test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    if: github.repository == 'aymenfurter/ohmygod' && github.event.repository.private
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test desktop UI
+        run: |
+          npm ci
+          npx playwright install chromium
+          npm test
+      - name: Check version
+        run: python scripts/check-version.py
+      - name: Select stable Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+      - name: Prepare Windows sidecar
+        if: runner.os == 'Windows'
+        run: python scripts/build-release.py ${{ matrix.target }} --prepare-cli-only
+      - name: Test
+        run: cargo test --workspace --locked --target ${{ matrix.target }}
+      - name: Build console CLI
+        run: cargo build --locked --target ${{ matrix.target }} -p ohmygod-cli
+      - name: Test CLI version
+        shell: bash
+        run: |
+          suffix=""
+          if [[ "$RUNNER_OS" == Windows ]]; then suffix=".exe"; fi
+          actual=$("target/${{ matrix.target }}/debug/ohmygod${suffix}" --version)
+          expected="ohmygod $(python scripts/check-version.py)"
+          test "$actual" = "$expected"
+      - name: Install Tauri build tool
+        run: cargo install tauri-cli --version 2.12.4 --locked
+      - name: Build installer
+        run: python scripts/build-release.py ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7

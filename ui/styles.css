@@ -98,6 +98,32 @@ code, pre { font-family: var(--font-mono); }
 .topbar__brand { background: none; border: none; cursor: pointer; display: flex; align-items: center; padding: 4px 0; }
 .topbar__wordmark { height: 16px; width: auto; display: block; image-rendering: pixelated; }
 .topbar__right { display: flex; align-items: center; gap: 10px; }
+html:not([data-platform="macos"]) .topbar { padding-left: 16px; }
+
+.about {
+  margin: auto;
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+.about::backdrop { background: rgba(0, 0, 0, .65); }
+.about__wordmark { display: block; width: 220px; max-width: 100%; margin-bottom: 24px; }
+.about h1 { font-size: 20px; margin-bottom: 8px; }
+.about p { color: var(--text-2); }
+.about__details { margin: 24px 0; }
+.about__details div { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; }
+.about__details dt { color: var(--text-2); }
+.about__details dd { text-align: right; overflow-wrap: anywhere; min-width: 0; }
+.about__private { font-size: 13px; margin-bottom: 24px; }
+.about .btn-row { justify-content: flex-end; }
+body.onboarding .topbar .topbar__right { display: flex; }
+body.onboarding #setupbtn, body.onboarding #syncbtn { display: none; }
 @keyframes dropIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ── Threads Panel (left) ── */
@@ -662,7 +688,7 @@ body { --font-display: var(--font); --font-read: var(--font); font-feature-setti
 .md code, .md pre { font-family: var(--font-mono); }
 
 /* Swiss: Helvetica Neue, heavy tight headings, small uppercase metadata */
-body { --font: "Helvetica Neue", Helvetica, Arial, sans-serif; --font-display: "Helvetica Neue", Helvetica, Arial, sans-serif; --font-mono: ui-monospace, "SF Mono", Menlo, monospace; }
+body { --font: "Helvetica Neue", Helvetica, "Segoe UI", Arial, sans-serif; --font-display: var(--font); --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .reader__head h2 { font-size: 28px; font-weight: 700; letter-spacing: -0.035em; line-height: 1.1; }
 .onb__panel h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; }
 .thread__title { font-size: 14px; font-weight: 700; letter-spacing: -0.015em; }

@@ -16,3 +16,6 @@ pub mod views;
 
 #[cfg(test)]
 mod tests;
+pub mod platform;
+#[cfg(windows)]
+mod windows;

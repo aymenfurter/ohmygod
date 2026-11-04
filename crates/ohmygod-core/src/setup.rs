@@ -163,14 +163,21 @@ fn is_bundled_runtime(p: &Path) -> bool {
     s.contains("github-copilot-sdk") || s.contains("copilot-sdk-runtime") || s.contains(".app/Contents/")
 }
 
+#[cfg(not(windows))]
 const HARNESS_BINS: [&str; 5] = ["copilot", "claude", "codex", "opencode", "pi"];
 
+#[cfg(not(windows))]
 type ShellCache = Option<(std::collections::HashMap<String, PathBuf>, std::time::Instant)>;
+#[cfg(not(windows))]
 static SHELL_CACHE: std::sync::Mutex<ShellCache> = std::sync::Mutex::new(None);
 
 /// Resolve commands the way the user's terminal does: through the login shell, in one call.
 /// GUI apps on macOS do not inherit the shell PATH. Cached for a minute.
 fn login_shell_paths() -> std::collections::HashMap<String, PathBuf> {
+    #[cfg(windows)]
+    return std::collections::HashMap::new();
+    #[cfg(not(windows))]
+    {
     let mut cache = SHELL_CACHE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((map, at)) = cache.as_ref() {
         if at.elapsed() < std::time::Duration::from_secs(60) {
@@ -184,7 +191,7 @@ fn login_shell_paths() -> std::collections::HashMap<String, PathBuf> {
         .collect::<Vec<_>>()
         .join("; ");
     let mut map = std::collections::HashMap::new();
-    if let Ok(out) = std::process::Command::new(shell)
+    if let Ok(out) = crate::platform::command(shell)
         .args(["-lc", &script])
         .env_remove("COPILOT_CLI_PATH")
         .stdin(std::process::Stdio::null())
@@ -202,6 +209,7 @@ fn login_shell_paths() -> std::collections::HashMap<String, PathBuf> {
     }
     *cache = Some((map.clone(), std::time::Instant::now()));
     map
+    }
 }
 
 fn login_shell_which(bin: &str) -> Option<PathBuf> {
@@ -225,7 +233,28 @@ fn which(bin: &str) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("PATH") {
         dirs.extend(std::env::split_paths(&path));
     }
-    dirs.into_iter().map(|d| d.join(bin)).find(|p| p.is_file() && !is_bundled_runtime(p))
+    #[cfg(windows)]
+    {
+        if let Some(appdata) = env_dir("APPDATA") {
+            dirs.push(appdata.join("npm"));
+        }
+        if let Some(local) = env_dir("LOCALAPPDATA") {
+            dirs.extend([local.join("Microsoft/WindowsApps"), local.join("Programs/GitHub CLI")]);
+        }
+        if let Some(programs) = env_dir("ProgramFiles") {
+            dirs.extend([programs.join("GitHub CLI"), programs.join("nodejs")]);
+        }
+    }
+    find_in_dirs(bin, &dirs)
+}
+
+fn find_in_dirs(bin: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+    #[cfg(windows)]
+    let suffixes = [".exe", ".cmd", ".bat", ""].as_slice();
+    #[cfg(not(windows))]
+    let suffixes = [""].as_slice();
+    dirs.iter().flat_map(|d| suffixes.iter().map(move |suffix| d.join(format!("{bin}{suffix}"))))
+        .find(|p| p.is_file() && !is_bundled_runtime(p))
 }
 
 static CLI_CACHE: std::sync::Mutex<Option<(Option<String>, Option<PathBuf>, std::time::Instant)>> = std::sync::Mutex::new(None);
@@ -268,7 +297,7 @@ pub fn copilot_version(cli: &Path) -> Option<String> {
 }
 
 fn copilot_version_uncached(cli: &Path) -> Option<String> {
-    let out = std::process::Command::new(cli)
+    let out = crate::platform::command(cli)
         .arg("--version")
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -499,6 +528,10 @@ fn mcp_cleanup(before: &str, port: u16) -> Result<(String, Option<String>)> {
 pub const LAUNCH_AGENT_LABEL: &str = "dev.ohmygod.desktop";
 
 pub fn launch_agent_path() -> PathBuf {
+    #[cfg(windows)]
+    return env_dir("APPDATA").unwrap_or_else(|| home_dir().join("AppData/Roaming"))
+        .join("Microsoft/Windows/Start Menu/Programs/Startup/OH MY GOD!.vbs");
+    #[cfg(not(windows))]
     home_dir().join("Library/LaunchAgents").join(format!("{LAUNCH_AGENT_LABEL}.plist"))
 }
 
@@ -507,12 +540,18 @@ pub fn legacy_launch_agent_path() -> PathBuf {
     home_dir().join("Library/LaunchAgents/dev.pinrelay.desktop.plist")
 }
 
+#[cfg(not(windows))]
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// LaunchAgent that opens the app at login. `app` is the .app bundle, or the binary in development.
 fn launch_agent_plist(app: &Path) -> String {
+    #[cfg(windows)]
+    return format!("' Managed by OH MY GOD!\r\nCreateObject(\"WScript.Shell\").Run \"\"\"{}\"\"\", 0, False\r\n",
+        app.to_string_lossy().replace('"', "\"\""));
+    #[cfg(not(windows))]
+    {
     let args = if app.extension().is_some_and(|e| e == "app") {
         format!("    <string>/usr/bin/open</string>\n    <string>-a</string>\n    <string>{}</string>", xml_escape(&app.display().to_string()))
     } else {
@@ -535,6 +574,7 @@ fn launch_agent_plist(app: &Path) -> String {
 </plist>
 "#
     )
+    }
 }
 
 // ---------------------------------------------------------------- ohmygod CLI on the PATH
@@ -555,6 +595,14 @@ pub struct CliLink {
 
 /// PATH of the user's login shell and what `ohmygod` resolves to there.
 fn login_shell_path() -> (Vec<PathBuf>, Option<PathBuf>) {
+    #[cfg(windows)]
+    {
+        let path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+        let found = find_in_dirs("ohmygod", &path);
+        (path, found)
+    }
+    #[cfg(not(windows))]
+    {
     let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
     let out = std::process::Command::new(shell)
         .args(["-lc", "printf '%s\\n' \"$PATH\"; command -v ohmygod 2>/dev/null"])
@@ -566,8 +614,10 @@ fn login_shell_path() -> (Vec<PathBuf>, Option<PathBuf>) {
     let path = lines.next().unwrap_or_default().split(':').filter(|p| !p.is_empty()).map(PathBuf::from).collect();
     let found = lines.next().map(PathBuf::from).filter(|p| p.is_absolute());
     (path, found)
+    }
 }
 
+#[cfg(not(windows))]
 fn writable_dir(p: &Path) -> bool {
     p.is_dir() && std::process::Command::new("/bin/test").arg("-w").arg(p).status().is_ok_and(|s| s.success())
 }
@@ -590,6 +640,18 @@ fn legacy_links() -> Vec<PathBuf> {
 
 /// Pick a user-writable directory on the login shell PATH for the `ohmygod` link.
 pub fn cli_link() -> CliLink {
+    #[cfg(windows)]
+    {
+        let dir = crate::windows::cli_directory();
+        let link = dir.join("ohmygod.cmd");
+        let (paths, found) = login_shell_path();
+        let in_path = paths.iter().any(|p| p.to_string_lossy().eq_ignore_ascii_case(&dir.to_string_lossy()));
+        let installed = link_target(&link).is_ok_and(|v| v.is_some());
+        let shadowed_by = found.filter(|p| !p.to_string_lossy().eq_ignore_ascii_case(&link.to_string_lossy()));
+        return CliLink { path: link, in_path, installed, shadowed_by };
+    }
+    #[cfg(not(windows))]
+    {
     let home = home_dir();
     let (path, found) = login_shell_path();
     let candidates = [home.join(".local/bin"), home.join("bin"), home.join(".homebrew/bin"), PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")];
@@ -602,8 +664,10 @@ pub fn cli_link() -> CliLink {
     let installed = fs::symlink_metadata(&link).is_ok_and(|m| m.file_type().is_symlink());
     let shadowed_by = found.filter(|f| in_path && f != &link);
     CliLink { path: link, in_path, installed, shadowed_by }
+    }
 }
 
+#[cfg(not(windows))]
 fn shell_profile() -> PathBuf {
     let home = home_dir();
     match std::env::var("SHELL").unwrap_or_default().rsplit('/').next() {
@@ -642,11 +706,30 @@ fn profile_after(before: &str, dir: Option<&Path>) -> String {
 
 /// A link "file" in the plan: its content is the link target, one line.
 fn link_target(p: &Path) -> Result<Option<String>> {
+    #[cfg(windows)]
+    {
+        match fs::read_to_string(p) {
+            Ok(text) if text.starts_with("@echo off\r\nrem ohmygod:launcher\r\n") => Ok(Some(text)),
+            Ok(_) => bail!("{} belongs to another program. Rename it and review setup again.", tilde(p)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e).with_context(|| format!("read {}", p.display())),
+        }
+    }
+    #[cfg(not(windows))]
+    {
     match fs::symlink_metadata(p) {
         Err(_) => Ok(None),
         Ok(m) if m.file_type().is_symlink() => Ok(Some(format!("{}\n", fs::read_link(p)?.display()))),
         Ok(_) => bail!("{} is a different program named ohmygod. Remove or rename it, then review again.", tilde(p)),
     }
+    }
+}
+
+fn cli_launcher(cli: &Path) -> String {
+    #[cfg(windows)]
+    return format!("@echo off\r\nrem ohmygod:launcher\r\n\"{}\" %*\r\n", cli.to_string_lossy().replace('%', "%%"));
+    #[cfg(not(windows))]
+    format!("{}\n", cli.display())
 }
 
 // ---------------------------------------------------------------- Claude Code permission
@@ -700,7 +783,7 @@ pub fn plan(o: &PlanOptions) -> Plan {
     let link = cli_link();
     let want_cli = if o.uninstall { None } else { o.cli };
     if want_cli.is_some() || link.installed {
-        let after = want_cli.map(|p| format!("{}\n", p.display())).unwrap_or_default();
+        let after = want_cli.map(cli_launcher).unwrap_or_default();
         let (before, after) = match link_target(&link.path) {
             Ok(b) => (b, Ok(after)),
             Err(e) => (None, Err(e)),
@@ -719,6 +802,19 @@ pub fn plan(o: &PlanOptions) -> Plan {
         }
         changes.push(c);
     }
+    #[cfg(windows)]
+    match crate::windows::user_path() {
+        Ok(before) => {
+            let after = crate::windows::path_after(before.as_deref().unwrap_or(""), &crate::windows::cli_directory(), want_cli.is_none());
+            if before.as_deref().unwrap_or("") != after {
+                changes.push(change("windows-path", "User PATH", "Adds the command directory to your Windows user PATH. Restart terminals and agent apps after setup.",
+                    Path::new(crate::windows::PATH_KEY), before, Ok(after), false));
+            }
+        }
+        Err(e) => changes.push(change("windows-path", "User PATH", "Reads the Windows user PATH before setup.", Path::new(crate::windows::PATH_KEY), None, Err(e), false)),
+    }
+    #[cfg(not(windows))]
+    {
     let profile = shell_profile();
     let pbefore = fs::read_to_string(&profile).ok();
     let need_path = want_cli.is_some() && !link.in_path;
@@ -735,6 +831,7 @@ pub fn plan(o: &PlanOptions) -> Plan {
             Ok(after),
             dir.is_none(),
         ));
+    }
     }
 
     // Instructions for each harness: added where selected, removed where deselected.
@@ -867,6 +964,12 @@ pub fn apply(approved: &[(String, Option<String>)], o: &PlanOptions) -> Result<V
             continue;
         }
         let path = PathBuf::from(&c.path);
+        #[cfg(windows)]
+        if id == "windows-path" {
+            crate::windows::set_user_path(&c.after)?;
+            written.push(c.path.clone());
+            continue;
+        }
         if id.starts_with("legacy-link:") {
             if fs::symlink_metadata(&path).is_ok() {
                 fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
@@ -875,12 +978,23 @@ pub fn apply(approved: &[(String, Option<String>)], o: &PlanOptions) -> Result<V
             continue;
         }
         if id == "cli" {
+            #[cfg(windows)]
+            {
+                if c.status == "remove" {
+                    fs::remove_file(&path)?;
+                } else {
+                    write_atomic(&path, c.after.as_bytes())?;
+                }
+            }
+            #[cfg(not(windows))]
+            {
             if fs::symlink_metadata(&path).is_ok() {
                 fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
             }
             if c.status != "remove" {
                 if let Some(dir) = path.parent() {
                     fs::create_dir_all(dir)?;
+                }
                 }
                 #[cfg(unix)]
                 std::os::unix::fs::symlink(c.after.trim(), &path).with_context(|| format!("link {}", path.display()))?;
@@ -931,6 +1045,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn launch_agent_opens_the_bundle() {
         let p = launch_agent_plist(Path::new("/Applications/Pin & Relay.app"));
         assert!(p.contains("<string>/usr/bin/open</string>"));
@@ -938,6 +1053,23 @@ mod tests {
         assert!(p.contains("<string>dev.ohmygod.desktop</string>"));
         let dev = launch_agent_plist(Path::new("/tmp/ohmygod-app"));
         assert!(!dev.contains("/usr/bin/open") && dev.contains("<string>/tmp/ohmygod-app</string>"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_launchers_quote_paths_and_keep_arguments() {
+        let cli = cli_launcher(Path::new(r"C:\Program Files\OH MY GOD!\ohmygod.exe"));
+        assert!(cli.contains("\"C:\\Program Files\\OH MY GOD!\\ohmygod.exe\" %*"));
+        let login = launch_agent_plist(Path::new(r"C:\Program Files\OH MY GOD!\ohmygod-app.exe"));
+        assert!(login.contains("\"\"\"C:\\Program Files\\OH MY GOD!\\ohmygod-app.exe\"\"\", 0, False"));
+    }
+
+    #[test]
+    fn finds_platform_executables() {
+        let dir = tempfile::tempdir().unwrap();
+        let name = if cfg!(windows) { "copilot.cmd" } else { "copilot" };
+        fs::write(dir.path().join(name), "").unwrap();
+        assert_eq!(find_in_dirs("copilot", &[dir.path().to_path_buf()]), Some(dir.path().join(name)));
     }
 
     #[test]

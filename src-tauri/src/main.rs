@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod about;
 mod state;
 mod workers;
 
@@ -84,16 +85,21 @@ fn main() {
             workers::spawn_scheduler(state.clone());
 
             let open = MenuItem::with_id(app, "open", "Open OH MY GOD!", true, None::<&str>)?;
+            let about = MenuItem::with_id(app, "about", "About OH MY GOD!", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit OH MY GOD! (agents lose access to the board)", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &about, &quit])?;
             TrayIconBuilder::with_id("ohmygod")
                 // A monochrome template image: macOS tints it for light and dark menu bars.
                 .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray@2x.png"))?)
-                .icon_as_template(true)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("OH MY GOD!")
                 .menu(&menu)
                 .on_menu_event(|app, e| match e.id.as_ref() {
                     "open" => show_main(app),
+                    "about" => {
+                        show_main(app);
+                        let _ = app.emit("ohmygod-about", ());
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -108,6 +114,8 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            about::about_info,
+            about::open_releases,
             commands::snapshot,
             commands::list_threads,
             commands::search_threads,

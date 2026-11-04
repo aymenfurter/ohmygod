@@ -1,0 +1,25 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "OH MY GOD!",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": true
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "externalBin": ["binaries/ohmygod"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

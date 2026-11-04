@@ -182,6 +182,7 @@ fn run(args: &[String]) -> Result<String, String> {
     let rest = &args[1..];
     let mut a = Map::new();
     match cmd.as_str() {
+        "--version" | "-V" | "version" => Ok(format!("ohmygod {}\n", env!("CARGO_PKG_VERSION"))),
         "join" => {
             put(&mut a, "agent_id", agent_arg(rest));
             put(&mut a, "name", value(rest, "--name"));

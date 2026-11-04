@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Require private repository and main history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = aymenfurter/ohmygod
+          test "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" = true
+          git merge-base --is-ancestor HEAD origin/main
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            python scripts/check-version.py --tag "$GITHUB_REF_NAME"
+          else
+            test "$GITHUB_REF" = refs/heads/main
+            python scripts/check-version.py
+          fi
+  build:
+    needs: validate
+    uses: ./.github/workflows/build.yml
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          merge-multiple: true
+          path: dist
+      - name: Publish private downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" = true
+          python scripts/release-notes.py "$VERSION" "$GITHUB_SHA"
+          sha256sum --check dist/SHA256SUMS
+          gh release create "v$VERSION" dist/*.dmg dist/*.exe dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "OH MY GOD! $VERSION" --notes-file dist/release-notes.md

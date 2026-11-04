@@ -295,6 +295,20 @@ fn app_path() -> Option<std::path::PathBuf> {
     Some(exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app")).map(|p| p.to_path_buf()).unwrap_or(exe))
 }
 
+fn cli_path() -> R<std::path::PathBuf> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    {
+        let cli = exe.with_file_name("ohmygod.exe");
+        if !cli.is_file() {
+            return Err("The console CLI is missing. Reinstall OH MY GOD! with its Windows installer.".into());
+        }
+        Ok(cli)
+    }
+    #[cfg(not(windows))]
+    Ok(exe)
+}
+
 #[tauri::command]
 pub fn launch_at_login() -> bool {
     setup::launch_agent_path().exists() || setup::legacy_launch_agent_path().exists()
@@ -318,7 +332,7 @@ pub async fn setup_plan(
 ) -> R<setup::Plan> {
     let s = state.settings();
     let login = if login.unwrap_or_else(launch_at_login) { app_path() } else { None };
-    let cli = std::env::current_exe().ok();
+    let cli = if uninstall { None } else { Some(cli_path()?) };
     let harnesses = known_harnesses(harnesses.unwrap_or(s.harnesses.clone()));
     tauri::async_runtime::spawn_blocking(move || {
         let uses = ohmygod_core::instructions::normalize_uses(&uses.unwrap_or(s.uses.clone()));
@@ -379,7 +393,7 @@ pub async fn setup_apply(state: S<'_>, req: ApplyRequest) -> R<Vec<String>> {
     let uses = ohmygod_core::instructions::normalize_uses(&req.uses);
     let uses2 = uses.clone();
     let login = if req.login.unwrap_or_else(launch_at_login) { app_path() } else { None };
-    let cli = std::env::current_exe().ok();
+    let cli = if uninstall { None } else { Some(cli_path()?) };
     let harnesses = known_harnesses(req.harnesses.unwrap_or_else(|| state.settings().harnesses));
     let harnesses2 = harnesses.clone();
     let visits = req.visits.unwrap_or_else(|| state.settings().visits);
@@ -450,13 +464,10 @@ pub fn open_path(path: String) -> R<()> {
     if !(p.starts_with(&home) || p.starts_with(setup::copilot_home())) {
         return Err("OH MY GOD! opens only files in its data directory.".into());
     }
-    let target = if p.is_file() { p.parent().map(|d| d.to_path_buf()).unwrap_or(p.clone()) } else { p.clone() };
-    let mut cmd = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" });
-    if cfg!(target_os = "macos") && p.is_file() {
-        cmd.arg("-R").arg(&p);
-    } else {
-        cmd.arg(&target);
-    }
-    cmd.spawn().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    let target = p;
+    #[cfg(not(target_os = "macos"))]
+    let target = if p.is_file() { p.parent().unwrap_or(&p).to_path_buf() } else { p };
+    ohmygod_core::platform::open_path(&target).map_err(|e| e.to_string())?;
     Ok(())
 }

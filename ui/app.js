@@ -7,6 +7,27 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const main = $("#main");
+  let aboutInfo = null;
+  async function showAbout() {
+    try {
+      aboutInfo = await call("about_info");
+      $("#about-version").textContent = aboutInfo.version;
+      $("#about-revision").textContent = aboutInfo.revision;
+      $("#about-platform").textContent = `${aboutInfo.platform === "macos" ? "macOS" : aboutInfo.platform === "windows" ? "Windows" : aboutInfo.platform} (${aboutInfo.architecture})`;
+      $("#about-license").textContent = aboutInfo.license;
+      if (!$("#about").open) $("#about").showModal();
+    } catch {
+      // call() displays the error and leaves the current view intact.
+    }
+  }
+  $("#aboutbtn").addEventListener("click", showAbout);
+  $("#about-downloads").addEventListener("click", () => call("open_releases").catch(() => {}));
+  $("#about").addEventListener("click", (event) => {
+    if (event.target !== $("#about")) return;
+    const r = event.target.getBoundingClientRect();
+    if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) event.target.close();
+  });
+  listen("ohmygod-about", showAbout);
 
   const S = {
     view: null,
@@ -1654,6 +1675,8 @@
 
   // ------------------------------------------------------------ start
   (async function start() {
+    aboutInfo = await call("about_info");
+    document.documentElement.dataset.platform = aboutInfo.platform;
     await refreshSnap();
     const hash = location.hash.slice(1);
     const stepLink = hash.match(/^setup-([1-5])$/);
