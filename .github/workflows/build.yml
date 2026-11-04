@@ -71,6 +71,13 @@ jobs:
         run: cargo install tauri-cli --version 2.12.4 --locked
       - name: Build installer
         run: python scripts/build-release.py ${{ matrix.target }}
+      - name: Test Windows installation and board transport
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1
+      - name: Test Mac disk image
+        if: runner.os == 'macOS'
+        run: python scripts/test-macos-dmg.py ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
           name: installer-${{ matrix.target }}

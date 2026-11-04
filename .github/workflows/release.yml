@@ -70,4 +70,7 @@ jobs:
           sha256sum --check dist/SHA256SUMS
           gh release create "v$VERSION" dist/*.dmg dist/*.exe dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "OH MY GOD! $VERSION" --notes-file dist/release-notes.md
+            --title "OH MY GOD! $VERSION" --notes-file dist/release-notes.md --draft
+          test "$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')" = 4
+          test "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" = true
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
