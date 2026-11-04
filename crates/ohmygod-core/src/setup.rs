@@ -530,7 +530,7 @@ pub const LAUNCH_AGENT_LABEL: &str = "dev.ohmygod.desktop";
 pub fn launch_agent_path() -> PathBuf {
     #[cfg(windows)]
     return env_dir("APPDATA").unwrap_or_else(|| home_dir().join("AppData/Roaming"))
-        .join("Microsoft/Windows/Start Menu/Programs/Startup/OH MY GOD!.vbs");
+        .join("Microsoft/Windows/Start Menu/Programs/Startup/OH MY GOD!.cmd");
     #[cfg(not(windows))]
     home_dir().join("Library/LaunchAgents").join(format!("{LAUNCH_AGENT_LABEL}.plist"))
 }
@@ -545,11 +545,11 @@ fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-/// LaunchAgent that opens the app at login. `app` is the .app bundle, or the binary in development.
+/// Login item that opens the app. `app` is the .app bundle, or the native executable.
 fn launch_agent_plist(app: &Path) -> String {
     #[cfg(windows)]
-    return format!("' Managed by OH MY GOD!\r\nCreateObject(\"WScript.Shell\").Run \"\"\"{}\"\"\", 0, False\r\n",
-        app.to_string_lossy().replace('"', "\"\""));
+    return format!("@echo off\r\nrem ohmygod:startup\r\nsetlocal DisableDelayedExpansion\r\nstart \"\" \"{}\"\r\n",
+        app.to_string_lossy().replace('%', "%%"));
     #[cfg(not(windows))]
     {
     let args = if app.extension().is_some_and(|e| e == "app") {
@@ -579,8 +579,11 @@ fn launch_agent_plist(app: &Path) -> String {
 
 // ---------------------------------------------------------------- ohmygod CLI on the PATH
 
+#[cfg(any(not(windows), test))]
 const PROFILE_BEGIN: &str = "# ohmygod:begin (managed by the OH MY GOD! app)";
+#[cfg(any(not(windows), test))]
 const PROFILE_END: &str = "# ohmygod:end";
+#[cfg(any(not(windows), test))]
 const LEGACY_PROFILE: (&str, &str) = ("# pinrelay:begin", "# pinrelay:end");
 
 pub struct CliLink {
@@ -677,6 +680,7 @@ fn shell_profile() -> PathBuf {
     }
 }
 
+#[cfg(any(not(windows), test))]
 fn strip_block(text: &str, begin: &str, end_marker: &str) -> String {
     match (text.find(begin), text.find(end_marker)) {
         (Some(a), Some(b)) if b > a => {
@@ -688,6 +692,7 @@ fn strip_block(text: &str, begin: &str, end_marker: &str) -> String {
     }
 }
 
+#[cfg(any(not(windows), test))]
 fn profile_after(before: &str, dir: Option<&Path>) -> String {
     let mut out = strip_block(&strip_block(before, PROFILE_BEGIN, PROFILE_END), LEGACY_PROFILE.0, LEGACY_PROFILE.1);
     if let Some(dir) = dir {
@@ -727,7 +732,7 @@ fn link_target(p: &Path) -> Result<Option<String>> {
 
 fn cli_launcher(cli: &Path) -> String {
     #[cfg(windows)]
-    return format!("@echo off\r\nrem ohmygod:launcher\r\n\"{}\" %*\r\n", cli.to_string_lossy().replace('%', "%%"));
+    return format!("@echo off\r\nrem ohmygod:launcher\r\nsetlocal DisableDelayedExpansion\r\n\"{}\" %*\r\n", cli.to_string_lossy().replace('%', "%%"));
     #[cfg(not(windows))]
     format!("{}\n", cli.display())
 }
@@ -1061,7 +1066,7 @@ mod tests {
         let cli = cli_launcher(Path::new(r"C:\Program Files\OH MY GOD!\ohmygod.exe"));
         assert!(cli.contains("\"C:\\Program Files\\OH MY GOD!\\ohmygod.exe\" %*"));
         let login = launch_agent_plist(Path::new(r"C:\Program Files\OH MY GOD!\ohmygod-app.exe"));
-        assert!(login.contains("\"\"\"C:\\Program Files\\OH MY GOD!\\ohmygod-app.exe\"\"\", 0, False"));
+        assert!(login.contains("start \"\" \"C:\\Program Files\\OH MY GOD!\\ohmygod-app.exe\""));
     }
 
     #[test]
@@ -1087,6 +1092,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn profile_block_round_trip() {
         let user = "export EDITOR=vim\n";
         let dir = home_dir().join(".local/bin");

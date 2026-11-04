@@ -51,7 +51,10 @@ fn main() {
         workers: Default::default(),
     });
 
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)));
+    let app = builder
         .manage(state.clone())
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -88,10 +91,24 @@ fn main() {
             let about = MenuItem::with_id(app, "about", "About OH MY GOD!", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit OH MY GOD! (agents lose access to the board)", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &about, &quit])?;
+            let tray_icon: &[u8] = if cfg!(target_os = "macos") {
+                include_bytes!("../icons/tray@2x.png")
+            } else {
+                include_bytes!("../icons/32x32.png")
+            };
             TrayIconBuilder::with_id("ohmygod")
                 // A monochrome template image: macOS tints it for light and dark menu bars.
-                .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray@2x.png"))?)
+                .icon(tauri::image::Image::from_bytes(tray_icon)?)
                 .icon_as_template(cfg!(target_os = "macos"))
+                .show_menu_on_left_click(!cfg!(windows))
+                .on_tray_icon_event(|tray, event| {
+                    if cfg!(windows) && matches!(event, tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up, ..
+                    }) {
+                        show_main(tray.app_handle());
+                    }
+                })
                 .tooltip("OH MY GOD!")
                 .menu(&menu)
                 .on_menu_event(|app, e| match e.id.as_ref() {

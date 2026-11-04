@@ -19,14 +19,18 @@ pub fn user_path() -> Result<Option<String>> {
 
 pub fn path_after(before: &str, dir: &Path, remove: bool) -> String {
     let directory = dir.to_string_lossy();
-    let mut entries: Vec<&str> = before.split(';').filter(|p| !p.trim().is_empty()).collect();
+    let mut entries: Vec<&str> = before.split(';').collect();
     let matches = |p: &str| p.trim().trim_end_matches('\\').eq_ignore_ascii_case(directory.trim_end_matches('\\'));
     if remove {
         entries.retain(|p| !matches(p));
-    } else if !entries.iter().any(|p| matches(p)) {
-        entries.push(&directory);
+        entries.join(";")
+    } else if entries.iter().any(|p| matches(p)) {
+        before.to_string()
+    } else if before.is_empty() {
+        directory.into_owned()
+    } else {
+        format!("{before};{directory}")
     }
-    entries.join(";")
 }
 
 pub fn set_user_path(value: &str) -> Result<()> {
@@ -34,9 +38,13 @@ pub fn set_user_path(value: &str) -> Result<()> {
         SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
     };
     let key = RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags("Environment", KEY_READ | KEY_WRITE)?;
-    // Keep expandable entries such as %USERPROFILE% intact.
-    let mut bytes: Vec<u8> = value.encode_utf16().chain(Some(0)).flat_map(u16::to_le_bytes).collect();
-    key.set_raw_value("Path", &winreg::RegValue { vtype: winreg::enums::REG_EXPAND_SZ, bytes: std::mem::take(&mut bytes) })?;
+    let vtype = match key.get_raw_value("Path") {
+        Ok(value) => value.vtype,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => winreg::enums::REG_EXPAND_SZ,
+        Err(e) => return Err(e).context("read user PATH type"),
+    };
+    let bytes: Vec<u8> = value.encode_utf16().chain(Some(0)).flat_map(u16::to_le_bytes).collect();
+    key.set_raw_value("Path", &winreg::RegValue { vtype, bytes })?;
     let message: Vec<u16> = "Environment\0".encode_utf16().collect();
     unsafe {
         SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, message.as_ptr() as isize, SMTO_ABORTIFHUNG, 1000, std::ptr::null_mut());
@@ -45,7 +53,7 @@ pub fn set_user_path(value: &str) -> Result<()> {
 }
 
 pub fn cli_directory() -> PathBuf {
-    crate::config::home_dir().join(".ohmygod/bin")
+    crate::config::home_dir().join(".ohmygod").join("bin")
 }
 
 #[cfg(test)]
@@ -60,5 +68,7 @@ mod tests {
         assert_eq!(path_after(&after, dir, false), after);
         assert_eq!(path_after(&after, dir, true), before);
         assert_eq!(path_after(r"C:\TOOLS;c:\users\agent\.ohmygod\bin\", dir, false), r"C:\TOOLS;c:\users\agent\.ohmygod\bin\");
+        let unusual = r";C:\Tools;;";
+        assert_eq!(path_after(&path_after(unusual, dir, false), dir, true), unusual);
     }
 }

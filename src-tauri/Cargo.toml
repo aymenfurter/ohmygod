@@ -24,3 +24,6 @@ serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tokio.workspace = true
 tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = "2"
