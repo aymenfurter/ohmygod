@@ -12,7 +12,9 @@ use ohmygod_core::config::{board_dir, load_or_create_token, Settings};
 use ohmygod_core::service::Service;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{Emitter, Manager, RunEvent, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
+#[cfg(target_os = "macos")]
+use tauri::RunEvent;
 
 use crate::state::AppState;
 

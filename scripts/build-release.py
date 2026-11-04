@@ -42,7 +42,8 @@ def main():
         shutil.copy2(build / "ohmygod.exe", sidecars / f"ohmygod-{target}.exe")
     if args.prepare_cli_only:
         return
-    run("cargo", "tauri", "build", "--ci", "--target", target,
+    run("node", str(ROOT / "node_modules/@tauri-apps/cli/tauri.js"),
+        "build", "--ci", "--target", target,
         "--bundles", "nsis" if windows else "dmg", cwd=ROOT / "src-tauri")
     pattern = f"nsis/*_{version}_*.exe" if windows else f"dmg/*_{version}_*.dmg"
     installers = list((build / "bundle").glob(pattern))

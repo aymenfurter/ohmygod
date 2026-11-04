@@ -56,9 +56,9 @@ change in this pipeline.
 
 ## Build locally
 
-Install Rust, Python 3.11 or later, the Tauri 2 prerequisites for your platform,
-and `cargo install tauri-cli --version 2.12.4 --locked`.
-Run one command on the matching host:
+Install Rust, Node.js 22, Python 3.11 or later, and the Tauri 2 prerequisites for your
+platform. Run `npm ci` to install the pinned Tauri build tool. It uses a native binary
+instead of compiling the build tool from source. Run one command on the matching host:
 
 ```text
 python scripts/build-release.py x86_64-pc-windows-msvc

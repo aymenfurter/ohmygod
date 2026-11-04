@@ -67,8 +67,6 @@ jobs:
           actual=$("target/${{ matrix.target }}/debug/ohmygod${suffix}" --version)
           expected="ohmygod $(python scripts/check-version.py)"
           test "$actual" = "$expected"
-      - name: Install Tauri build tool
-        run: cargo install tauri-cli --version 2.12.4 --locked
       - name: Build installer
         run: python scripts/build-release.py ${{ matrix.target }}
       - name: Test Windows installation and board transport

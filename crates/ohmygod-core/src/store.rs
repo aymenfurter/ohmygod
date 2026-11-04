@@ -576,7 +576,8 @@ impl Journal {
             .open(path)
             .with_context(|| format!("open {}", path.display()))?;
         if file.metadata()?.len() != valid_len {
-            file.set_len(valid_len)?;
+            // Windows append-only handles cannot truncate a torn final write.
+            OpenOptions::new().write(true).open(path)?.set_len(valid_len)?;
         }
         Ok((
             Self {
