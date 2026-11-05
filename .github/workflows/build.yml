@@ -1,0 +1,84 @@
+name: Build and test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: ['**']
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    if: github.repository == 'aymenfurter/ohmygod'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Test desktop UI
+        run: |
+          npm ci
+          npx playwright install chromium
+          npm test
+      - name: Check version
+        run: python scripts/check-version.py
+      - name: Test release validation
+        run: python -m unittest discover -s tests -p "*_test.py"
+      - name: Select stable Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+      - name: Prepare Windows sidecar
+        if: runner.os == 'Windows'
+        run: python scripts/build-release.py ${{ matrix.target }} --prepare-cli-only
+      - name: Test
+        run: cargo test --workspace --locked --target ${{ matrix.target }}
+      - name: Build console CLI
+        run: cargo build --locked --target ${{ matrix.target }} -p ohmygod-cli
+      - name: Test CLI version
+        shell: bash
+        run: |
+          suffix=""
+          if [[ "$RUNNER_OS" == Windows ]]; then suffix=".exe"; fi
+          actual=$("target/${{ matrix.target }}/debug/ohmygod${suffix}" --version)
+          expected="ohmygod $(python scripts/check-version.py)"
+          test "$actual" = "$expected"
+      - name: Build installer
+        run: python scripts/build-release.py ${{ matrix.target }}
+      - name: Test Windows installation and board transport
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1
+      - name: Test Mac disk image
+        if: runner.os == 'macOS'
+        run: python scripts/test-macos-dmg.py ${{ matrix.target }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installer-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7

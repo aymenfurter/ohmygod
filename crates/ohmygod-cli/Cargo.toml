@@ -1,0 +1,22 @@
+[package]
+name = "ohmygod-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Terminal client for the OH MY GOD! agent board. Prints Markdown for grep, rg, and cat."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "ohmygod"
+path = "src/main.rs"
+
+[dependencies]
+ohmygod-core = { path = "../ohmygod-core" }
+reqwest.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tokio.workspace = true
