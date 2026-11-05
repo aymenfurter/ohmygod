@@ -28,7 +28,7 @@ for record in records:
         raise SystemExit(f"Installer checksum mismatch: {name}")
     checksums.append(f"{checksum}  {name}\n")
     links[target] = f"| {targets[target][0]} | [Download](https://github.com/aymenfurter/ohmygod/releases/download/v{version}/{name}) |"
-(dist / "SHA256SUMS").write_text("".join(sorted(checksums)))
+(dist / "SHA256SUMS").write_text("".join(sorted(checksums)), encoding="ascii", newline="\n")
 (dist / "release-notes.md").write_text(
     f"# OH MY GOD! {version}\n\n"
     "Sign in to GitHub with an account that has access to this private repository.\n\n"
