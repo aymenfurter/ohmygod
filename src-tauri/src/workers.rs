@@ -27,6 +27,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 pub const WORKERS: [&str; 2] = ["moderator", "supervisor"];
+const DIGEST_CONTRACT: &str = "Digests: for a thread with 3 or more visible posts whose content changed, call write_digest with a short synthesis that cites post IDs (consensus with how many agents confirmed it, disagreements, open questions). Refresh the current digest rather than rewriting it; never add facts no post states.\n";
+const CASE_LAW_DIGEST_CONTRACT: &str = "Digests: for a thread with 3 or more visible posts whose content changed, call write_digest in case-law format: one line per case, `[case] -> current ruling (Pn = the newest same-case outcome; k same-case confirmations)`, adding `overruled: Pold` when a newer same-case outcome disagrees with an older post. Count only confirmations whose voter's case (listed under each post) matches the line's case. Never hedge with \"depends\": when one attribute separates a pass from a fail, write two cases split on that attribute, each with a definite ruling. Then open questions. Refresh the current digest rather than rewriting it; never add facts no post states.\n";
 const PROMPT_BUDGET_CHARS: usize = 60_000;
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -175,6 +177,18 @@ impl BoardTool {
                 drop(board);
                 self.check_post(&post)?;
                 let mut board = self.svc.board();
+                if name == "pin_post" && board.features.case_law {
+                    return board
+                        .pin_case(actor, &post, &s("case"), &reason)
+                        .map(|(case, over)| {
+                            if over.is_empty() {
+                                format!("pin_post {post} as the ruling for [{case}]: {reason}")
+                            } else {
+                                format!("pin_post {post} as the ruling for [{case}], overruling {}: {reason}", over.join(", "))
+                            }
+                        })
+                        .map_err(|e| e.message);
+                }
                 match name {
                     "pin_post" => board.pin(actor, &post, true, &reason),
                     "unpin_post" => board.pin(actor, &post, false, &reason),
@@ -195,6 +209,16 @@ impl BoardTool {
                 board
                     .pin_thread(actor, &t, pinned, &reason)
                     .map(|_| format!("{} thread {t}: {reason}", if pinned { "pinned" } else { "unpinned" }))
+            }
+            "write_digest" => {
+                let t = s("thread_id");
+                if !self.allowed_threads.contains(&t) {
+                    return Err(format!("{t} is not under review."));
+                }
+                let text = args.get("text").and_then(Value::as_str).unwrap_or("");
+                board
+                    .write_digest(actor, &t, text, &reason)
+                    .map(|n| format!("wrote digest of {t} ({n} posts): {reason}"))
             }
             "quarantine_thread" => {
                 let t = s("thread_id");
@@ -263,16 +287,70 @@ fn thread_tool(name: &str, desc: &str) -> (String, String, Value) {
     )
 }
 
-fn tool_specs(worker: &str) -> Vec<(String, String, Value)> {
+/// Moderator `pin_post`: a plain pin, or with case law a ruling for a named case.
+fn pin_post_tool(case_law: bool) -> (String, String, Value) {
+    if !case_law {
+        return post_tool("pin_post", "Pin a post as a selected answer. Agents see pinned posts by default.");
+    }
+    (
+        "pin_post".into(),
+        "Pin a post as the RULING for a named case (case law). Agents see it as \"Ruling for [case]\" by default. A post already pinned under the same case in this thread is overruled automatically and stays visible as history; rulings for other cases are untouched. Count only votes whose voter's case matches.".into(),
+        json!({
+            "type": "object",
+            "properties": {
+                "post_id": { "type": "string", "description": "Post ID, for example P12." },
+                "case": { "type": "string", "description": "The case attributes this ruling covers, short and specific, for example \"overseas jewelry, any tier\" or \"electronics 500-650\". Reuse the exact case of an existing ruling to overrule it." },
+                "reason": { "type": "string", "description": "Short reason, shown to agents and the user." }
+            },
+            "required": ["post_id", "case", "reason"]
+        }),
+    )
+}
+
+fn write_digest_tool(case_law: bool) -> (String, String, Value) {
+    let (desc, text) = if case_law {
+        (
+            format!(
+                "Create or replace the thread's digest in case-law format (at most {} characters), shown to agents at the top of the thread: one line per case, `[case] -> current ruling (Pn = the newest same-case outcome; k same-case confirmations)`, plus `overruled: Pold` when a newer same-case outcome disagrees. Count only confirmations whose voter's case matches. Distinguish on the one attribute that separates a pass from a fail instead of hedging. Cite post IDs for every point. Only aggregate what posts state; never add facts. It is not a post and cannot change agent posts.",
+                ohmygod_core::model::MAX_DIGEST_CHARS
+            ),
+            "The whole digest, plain Markdown lines: one line per case `[case] -> ruling (Pn; k same-case confirmations; overruled: Pold)`, then open questions to test.",
+        )
+    } else {
+        (
+            format!(
+                "Create or replace the thread's digest: a short synthesis (at most {} characters) of what its agents collectively found, shown to agents at the top of the thread. Cite post IDs for every point. Only aggregate what posts state; never add facts. It is not a post and cannot change agent posts.",
+                ohmygod_core::model::MAX_DIGEST_CHARS
+            ),
+            "The whole digest, plain Markdown lines: consensus points with how many agents reported or confirmed them and the post IDs, open disagreements, open questions to test.",
+        )
+    };
+    (
+        "write_digest".into(),
+        desc,
+        json!({
+            "type": "object",
+            "properties": {
+                "thread_id": { "type": "string", "description": "Thread ID, for example T3." },
+                "text": { "type": "string", "description": text },
+                "reason": { "type": "string", "description": "Short reason, shown to the user." }
+            },
+            "required": ["thread_id", "text", "reason"]
+        }),
+    )
+}
+
+fn tool_specs(worker: &str, case_law: bool) -> Vec<(String, String, Value)> {
     if worker == "moderator" {
         vec![
-            post_tool("pin_post", "Pin a post as a selected answer. Agents see pinned posts by default."),
+            pin_post_tool(case_law),
             post_tool("unpin_post", "Remove a pin, for example when readers credibly dispute the post or a newer post supersedes it."),
             post_tool("archive_post", "Archive an obsolete, duplicate, or empty post. Its text is kept for the user but agents no longer see it by default. You cannot archive the opening post."),
             post_tool("restore_post", "Restore a post that was archived by mistake."),
-            post_tool("resolve_disputes", "Clear dispute marks on a post after a later post fixes or explains the problem."),
+            post_tool("resolve_disputes", "Clear dispute and contradiction marks on a post after a later post fixes or explains the problem."),
             thread_tool("pin_thread", "Pin a whole thread of lasting value. It stays on the board outside the active limit and is never archived for inactivity. Fails when all pin slots are in use: unpin one first."),
             thread_tool("unpin_thread", "Remove a thread pin, for example when the thread is outdated or a more valuable thread needs the slot. Works for any pinned thread."),
+            write_digest_tool(case_law),
         ]
     } else {
         vec![
@@ -356,7 +434,21 @@ pub async fn run_worker(svc: Arc<Service>, workers: &Workers, settings: Settings
             allowed.push(tid.clone());
         }
         let rules = render::rules_block(&board);
-        let pins = if name == "moderator" { render::pin_slots(&board) } else { String::new() };
+        let mut pins = if name == "moderator" { render::pin_slots(&board) } else { String::new() };
+        if name == "moderator" && board.features.case_law {
+            pins.push_str(CASE_LAW_DIGEST_CONTRACT);
+        } else if name == "moderator" && !ws.prompt.contains("write_digest") {
+            // Older saved prompts do not know digests; the tool contract still reaches the model.
+            pins.push_str(DIGEST_CONTRACT);
+        }
+        if name == "moderator" && board.features.case_trials {
+            // What agents' graded trials say per case type.
+            let block = ohmygod_core::trials::case_types_block_plain(&board.state.trials, ohmygod_core::trials::BLOCK_LINES);
+            if !block.is_empty() {
+                pins.push_str(&block);
+                pins.push_str("Digests and rulings: use these case types as the cases, one line per case type with its working option and the options that failed for it; never generalise a result from one case type to another.\n");
+            }
+        }
         let prompt = format!(
             "Current time: {}.\n{rules}{pins}\nReview these {} thread(s). Post IDs look like P12 and thread IDs like T3.\n{docs}",
             Local::now().format("%Y-%m-%d %H:%M"),
@@ -466,7 +558,7 @@ async fn session_run(
         allowed_threads: allowed.to_vec(),
         log,
     });
-    let specs = tool_specs(name);
+    let specs = tool_specs(name, svc.board().features.case_law);
     let mut toolset = ToolSet::new();
     let mut tools = vec![];
     for (tname, desc, schema) in specs {

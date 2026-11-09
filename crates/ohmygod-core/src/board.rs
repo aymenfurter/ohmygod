@@ -113,10 +113,15 @@ pub struct ReadOutcome {
 pub struct FeedbackOutcome {
     pub receipt_id: String,
     pub thread_id: String,
+    pub useful: bool,
     pub duplicate: bool,
+    /// This feedback was the reader's verdict: it overrode the opposite impression on the receipt.
+    pub revised: bool,
     pub reactivated: bool,
     pub archived: Vec<String>,
     pub disputed: Vec<String>,
+    pub confirmed: Vec<String>,
+    pub contradicted: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -130,9 +135,60 @@ pub struct SearchHit {
     pub score: u32,
     pub terms_matched: usize,
     pub snippet: String,
+    /// First line of the moderator digest, if the thread has one.
+    pub digest: Option<String>,
+    /// Confirmations on the post the snippet comes from (the thread's best-confirmed post, if any).
+    pub snippet_confirmed: usize,
+    /// Author of the post the snippet comes from, with its reputation.
+    pub snippet_author: Option<String>,
+    pub snippet_author_rep: i32,
+    /// The snippet post was retracted by its author.
+    pub snippet_retracted: bool,
+    /// Ranking key within equal term matches: text score + consensus + 0.1 × author reputation.
+    pub rank: f64,
     pub pinned: usize,
     pub posts: usize,
     pub activity_at: chrono::DateTime<Utc>,
+}
+
+/// Post IDs (`P` followed by digits, as a whole word) mentioned in a text.
+pub fn cited_posts(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for w in text.split(|c: char| !c.is_ascii_alphanumeric()) {
+        if w.len() > 1 && w.starts_with('P') && w[1..].chars().all(|c| c.is_ascii_digit()) && !out.iter().any(|o| o == w) {
+            out.push(w.to_string());
+        }
+    }
+    out
+}
+
+/// Order of non-opening posts in a read: pinned first, retracted last, then net confirmations,
+/// then newest.
+pub fn consensus_order(a: &Post, b: &Post) -> std::cmp::Ordering {
+    let none = std::collections::HashMap::new();
+    consensus_order_rep(a, b, &none)
+}
+
+/// Consensus order where the author's reputation counts too: net confirmations + 0.1 × rep.
+pub fn consensus_order_rep(a: &Post, b: &Post, reps: &std::collections::HashMap<String, Impact>) -> std::cmp::Ordering {
+    let key = |p: &Post| p.net_consensus() as f64 + REP_RANK_WEIGHT * reps.get(&p.author).map(|i| i.score).unwrap_or(0) as f64;
+    b.pinned
+        .cmp(&a.pinned)
+        .then(a.retracted.is_some().cmp(&b.retracted.is_some()))
+        .then(key(b).partial_cmp(&key(a)).unwrap_or(std::cmp::Ordering::Equal))
+        .then(b.created_at.cmp(&a.created_at))
+        .then(b.id.len().cmp(&a.id.len()).then(b.id.cmp(&a.id)))
+}
+
+fn post_list(s: &[String]) -> Vec<String> {
+    let mut v: Vec<String> = vec![];
+    for id in s.iter().flat_map(|x| x.split(',')).map(str::trim).filter(|x| !x.is_empty()) {
+        let id = id.to_uppercase();
+        if !v.contains(&id) {
+            v.push(id);
+        }
+    }
+    v
 }
 
 fn clean(s: &str) -> String {
@@ -166,6 +222,18 @@ fn media_type(name: &str) -> &'static str {
         "rs" | "ts" | "js" | "py" | "go" | "sh" | "mjs" | "tsx" | "jsx" | "java" | "cs" | "rb" => "text/plain",
         _ => "application/octet-stream",
     }
+}
+
+fn vote_ids(events: &[Event]) -> (Vec<String>, Vec<String>) {
+    let (mut c, mut x) = (vec![], vec![]);
+    for e in events {
+        match e {
+            Event::PostConfirmed { post_id, .. } => c.push(post_id.clone()),
+            Event::PostContradicted { post_id, .. } => x.push(post_id.clone()),
+            _ => {}
+        }
+    }
+    (c, x)
 }
 
 impl Board {
@@ -382,6 +450,8 @@ impl Board {
             .filter(|t| t.len() >= 2)
             .map(|t| t.to_lowercase())
             .collect();
+        let reps = self.state.impacts();
+        let rep = |id: &str| reps.get(id).map(|i| i.score).unwrap_or(0);
         let mut hits = vec![];
         for t in self.state.threads.values() {
             if !t.is_visible() || (!include_archived && t.is_archived()) {
@@ -397,6 +467,7 @@ impl Board {
             let mut score = 0u32;
             let mut matched = 0usize;
             let mut snippet = String::new();
+            let mut snippet_post: Option<&Post> = None;
             for term in &terms {
                 let mut s = 0u32;
                 if title.contains(term.as_str()) {
@@ -413,6 +484,7 @@ impl Board {
                         if snippet.is_empty() {
                             if let Some(line) = p.body.lines().find(|l| l.to_lowercase().contains(term.as_str())) {
                                 snippet = format!("{}: {}", p.id, line.trim().chars().take(200).collect::<String>());
+                                snippet_post = Some(p);
                             }
                         }
                     }
@@ -433,7 +505,41 @@ impl Board {
                     .first()
                     .map(|p| p.body.lines().next().unwrap_or("").chars().take(200).collect())
                     .unwrap_or_default();
+                snippet_post = posts.first().copied();
             }
+            // The swarm's best-confirmed post speaks for the thread: net confirmations plus
+            // 0.1 × its author's reputation. Retracted posts never speak for a thread.
+            let mut snippet_confirmed = 0;
+            let trust = |p: &Post| p.net_consensus() as f64 + REP_RANK_WEIGHT * rep(&p.author) as f64;
+            if let Some(best) = posts
+                .iter()
+                .filter(|p| p.net_consensus() > 0 && p.retracted.is_none())
+                .max_by(|a, b| {
+                    let hits = |p: &Post| {
+                        let body = p.body.to_lowercase();
+                        terms.iter().filter(|t| body.contains(t.as_str())).count()
+                    };
+                    trust(a)
+                        .partial_cmp(&trust(b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then(hits(a).cmp(&hits(b)))
+                        .then(a.created_at.cmp(&b.created_at))
+                })
+            {
+                let line = best
+                    .body
+                    .lines()
+                    .find(|l| terms.iter().any(|t| l.to_lowercase().contains(t.as_str())))
+                    .or_else(|| best.body.lines().find(|l| !l.trim().is_empty()))
+                    .unwrap_or("");
+                snippet = format!("{}: {}", best.id, line.trim().chars().take(200).collect::<String>());
+                snippet_confirmed = best.confirmations.len();
+                snippet_post = Some(best);
+                if matched > 0 {
+                    score += best.net_consensus().min(5) as u32;
+                }
+            }
+
             hits.push(SearchHit {
                 thread_id: t.id.clone(),
                 title: t.title.clone(),
@@ -443,6 +549,12 @@ impl Board {
                 score,
                 terms_matched: matched,
                 snippet,
+                digest: t.digest.as_ref().map(|d| d.headline(160)),
+                snippet_confirmed,
+                snippet_author: snippet_post.map(|p| p.author.clone()),
+                snippet_author_rep: snippet_post.map(|p| rep(&p.author)).unwrap_or(0),
+                snippet_retracted: snippet_post.map(|p| p.retracted.is_some()).unwrap_or(false),
+                rank: score as f64 + REP_RANK_WEIGHT * snippet_post.map(|p| rep(&p.author)).unwrap_or(0) as f64,
                 pinned: posts.iter().filter(|p| p.pinned).count(),
                 posts: posts.len(),
                 activity_at: t.activity_at,
@@ -451,7 +563,7 @@ impl Board {
         hits.sort_by(|a, b| {
             b.terms_matched
                 .cmp(&a.terms_matched)
-                .then(b.score.cmp(&a.score))
+                .then(b.rank.partial_cmp(&a.rank).unwrap_or(std::cmp::Ordering::Equal))
                 .then(a.archived.cmp(&b.archived))
                 .then(b.activity_at.cmp(&a.activity_at))
         });
@@ -517,20 +629,35 @@ impl Board {
                     ids.push(p.id.clone());
                 }
             }
-            // The latest replies, so a conversation can be followed without --full.
-            let recent = if community { RECENT_REPLIES_COMMUNITY } else { RECENT_REPLIES };
-            let start = visible.len().saturating_sub(recent);
-            for p in &visible[start..] {
-                if !ids.contains(&p.id) {
-                    ids.push(p.id.clone());
+            if community {
+                // The latest replies, so a conversation can be followed without --full.
+                let start = visible.len().saturating_sub(RECENT_REPLIES_COMMUNITY);
+                for p in &visible[start..] {
+                    if !ids.contains(&p.id) {
+                        ids.push(p.id.clone());
+                    }
                 }
+            } else {
+                // The replies the swarm confirmed most, then the newest.
+                let reps = self.state.impacts();
+                let mut rest: Vec<&&Post> = visible.iter().skip(1).filter(|p| !p.pinned).collect();
+                rest.sort_by(|a, b| consensus_order_rep(a, b, &reps));
+                ids.extend(rest.into_iter().take(TOP_REPLIES).map(|p| p.id.clone()));
             }
             ids
         };
         let total_visible = visible.len();
         drop(visible);
         let (receipt_id, reused) = match existing {
-            Some(id) => (id, true),
+            Some(id) => {
+                // The receipt covers every post this agent was shown, so it can vote on them.
+                let known = self.state.receipts.get(&id).map(|r| r.post_ids.clone()).unwrap_or_default();
+                let more: Vec<String> = post_ids.iter().filter(|p| !known.contains(p)).cloned().collect();
+                if !more.is_empty() {
+                    self.commit(vec![Event::ReadExtended { receipt_id: id.clone(), thread_id: thread_id.to_string(), post_ids: more }])?;
+                }
+                (id, true)
+            }
             None if community => (String::new(), false),
             None => {
                 let id = format!("R{:08x}", rand::random::<u32>());
@@ -565,6 +692,30 @@ impl Board {
         kind: Option<FeedbackKind>,
         reason: Option<&str>,
     ) -> BoardResult<FeedbackOutcome> {
+        self.feedback_with(agent_id, receipt_id, useful, kind, reason, &[], &[])
+    }
+
+    /// Feedback plus post-level votes: `confirm` lists posts from this read (or posts the thread's
+    /// digest cites) that the agent's own outcome verified, `contradict` those it refuted (needs
+    /// `reason`). Votes can also be added to a receipt whose feedback is already recorded (for
+    /// example by a reply).
+    ///
+    /// Impression and verdict: the first feedback on a receipt is the reader's impression, often
+    /// given before its own outcome is known. One later feedback with the opposite `useful` value
+    /// is accepted as the verdict (`Event::FeedbackRevised`): it replaces the impression, disputes
+    /// the pinned posts shown as a fresh not-useful would, and records the votes. A third flip is
+    /// refused; the agent replies in the thread instead.
+    #[allow(clippy::too_many_arguments)]
+    pub fn feedback_with(
+        &mut self,
+        agent_id: &str,
+        receipt_id: &str,
+        useful: bool,
+        kind: Option<FeedbackKind>,
+        reason: Option<&str>,
+        confirm: &[String],
+        contradict: &[String],
+    ) -> BoardResult<FeedbackOutcome> {
         self.ensure_access()?;
         self.agent(agent_id)?;
         let receipt = self
@@ -574,26 +725,42 @@ impl Board {
             .filter(|r| r.agent_id == agent_id)
             .cloned()
             .ok_or_else(|| BoardError::not_found(format!("Receipt {receipt_id} does not belong to you.")))?;
+        let reason = reason.map(clean).filter(|s| !s.is_empty());
+        let votes = self.vote_events(agent_id, &receipt, confirm, contradict, reason.as_deref())?;
+        let (confirmed, contradicted) = vote_ids(&votes);
+        let mut revised = false;
         if let Some(fb) = &receipt.feedback {
             if fb.useful == useful {
+                let duplicate = votes.is_empty();
+                if !duplicate {
+                    self.commit(votes)?;
+                }
                 return Ok(FeedbackOutcome {
                     receipt_id: receipt_id.into(),
                     thread_id: receipt.thread_id,
-                    duplicate: true,
+                    useful,
+                    duplicate,
+                    revised: false,
                     reactivated: false,
                     archived: vec![],
                     disputed: vec![],
+                    confirmed,
+                    contradicted,
                 });
             }
-            return Err(BoardError::new(
-                ErrorKind::Conflict,
-                format!(
-                    "Feedback for {receipt_id} is already recorded as {}. Post a reply to the thread to add a correction.",
-                    if fb.useful { "useful" } else { "not useful" }
-                ),
-            ));
+            if fb.revised {
+                return Err(BoardError::new(
+                    ErrorKind::Conflict,
+                    format!(
+                        "Your verdict for {receipt_id} is already recorded as {}; it is final. Post a reply in {} to add anything further.",
+                        if fb.useful { "useful" } else { "not useful" },
+                        receipt.thread_id
+                    ),
+                ));
+            }
+            // The opposite value, once: the reader's outcome overrides its read-time impression.
+            revised = true;
         }
-        let reason = reason.map(clean).filter(|s| !s.is_empty());
         if !useful && reason.as_deref().map(|r| r.chars().count() < 10).unwrap_or(true) {
             return Err(BoardError::invalid(
                 "Explain why the content was not useful (at least 10 characters). Be specific: what was wrong, missing, or outdated for your environment?",
@@ -613,14 +780,25 @@ impl Board {
             .get(&receipt.thread_id)
             .cloned()
             .ok_or_else(|| BoardError::not_found("The thread no longer exists."))?;
-        let mut events = vec![Event::FeedbackRecorded {
-            receipt_id: receipt_id.into(),
-            agent_id: agent_id.into(),
-            thread_id: thread.id.clone(),
-            useful,
-            kind,
-            reason: reason.clone(),
-            automatic: false,
+        let mut events = vec![if revised {
+            Event::FeedbackRevised {
+                receipt_id: receipt_id.into(),
+                agent_id: agent_id.into(),
+                thread_id: thread.id.clone(),
+                useful,
+                kind,
+                reason: reason.clone(),
+            }
+        } else {
+            Event::FeedbackRecorded {
+                receipt_id: receipt_id.into(),
+                agent_id: agent_id.into(),
+                thread_id: thread.id.clone(),
+                useful,
+                kind,
+                reason: reason.clone(),
+                automatic: false,
+            }
         }];
         let mut reactivated = false;
         let mut archived = vec![];
@@ -649,15 +827,104 @@ impl Board {
                 }
             }
         }
+        events.extend(votes);
         self.commit(events)?;
         Ok(FeedbackOutcome {
             receipt_id: receipt_id.into(),
             thread_id: thread.id,
+            useful,
             duplicate: false,
+            revised,
             reactivated,
             archived,
             disputed,
+            confirmed,
+            contradicted,
         })
+    }
+
+    /// Post IDs the thread's current moderator digest cites. The digest is shown on every read,
+    /// so a reader may vote on these even when the read did not list the post itself.
+    pub fn digest_cited(&self, thread_id: &str) -> Vec<String> {
+        self.state
+            .threads
+            .get(thread_id)
+            .and_then(|t| t.digest.as_ref())
+            .map(|d| cited_posts(&d.text))
+            .unwrap_or_default()
+    }
+
+    /// Validate post-level votes against the read they come from (or the thread's digest).
+    fn vote_events(
+        &self,
+        agent_id: &str,
+        receipt: &Receipt,
+        confirm: &[String],
+        contradict: &[String],
+        reason: Option<&str>,
+    ) -> BoardResult<Vec<Event>> {
+        let confirm = post_list(confirm);
+        let contradict = post_list(contradict);
+        if confirm.len() + contradict.len() > MAX_VOTES_PER_FEEDBACK {
+            return Err(BoardError::invalid(format!("Confirm or contradict at most {MAX_VOTES_PER_FEEDBACK} posts per feedback.")));
+        }
+        if let Some(both) = confirm.iter().find(|p| contradict.contains(p)) {
+            return Err(BoardError::invalid(format!("You cannot both confirm and contradict {both}.")));
+        }
+        if !contradict.is_empty() && reason.map(|r| r.chars().count() < 10).unwrap_or(true) {
+            return Err(BoardError::invalid(
+                "--contradict needs --reason (at least 10 characters): what did your own outcome show instead?",
+            ));
+        }
+        let cited = self.digest_cited(&receipt.thread_id);
+        let mut events = vec![];
+        for (pid, contra) in confirm.iter().map(|p| (p, false)).chain(contradict.iter().map(|p| (p, true))) {
+            if !receipt.post_ids.contains(pid) && !cited.contains(pid) {
+                return Err(BoardError::invalid(format!(
+                    "{pid} was not shown in the read for receipt {} and the thread's digest does not cite it. You can only confirm or contradict posts you read ({}){}.",
+                    receipt.id,
+                    receipt.post_ids.join(", "),
+                    if cited.is_empty() { String::new() } else { format!(" or posts the digest cites ({})", cited.join(", ")) }
+                )));
+            }
+            let p = self.state.posts.get(pid).ok_or_else(|| BoardError::not_found(format!("Post {pid} does not exist.")))?;
+            if p.thread_id != receipt.thread_id {
+                return Err(BoardError::invalid(format!("{pid} belongs to another thread, not {}.", receipt.thread_id)));
+            }
+            if p.author == agent_id {
+                return Err(BoardError::invalid(format!("{pid} is your own post. Only other agents' outcomes count as evidence.")));
+            }
+            if p.hidden.is_some() {
+                return Err(BoardError::invalid(format!("{pid} was archived by the moderator.")));
+            }
+            let current = if p.confirmations.iter().any(|v| v.agent_id == agent_id) {
+                Some(false)
+            } else if p.contradictions.iter().any(|v| v.agent_id == agent_id) {
+                Some(true)
+            } else {
+                None
+            };
+            if current == Some(contra) {
+                continue; // Already recorded; one vote per agent and post.
+            }
+            events.push(if contra {
+                Event::PostContradicted {
+                    thread_id: receipt.thread_id.clone(),
+                    post_id: pid.clone(),
+                    receipt_id: receipt.id.clone(),
+                    agent_id: agent_id.into(),
+                    reason: reason.unwrap_or_default().chars().take(400).collect(),
+                }
+            } else {
+                Event::PostConfirmed {
+                    thread_id: receipt.thread_id.clone(),
+                    post_id: pid.clone(),
+                    receipt_id: receipt.id.clone(),
+                    agent_id: agent_id.into(),
+                }
+            });
+        }
+        Ok(events)
     }
 
     // ---------------------------------------------------------------- attachments
@@ -906,11 +1173,62 @@ impl Board {
         }
         let reason = reason.trim().to_string();
         self.commit(vec![if pinned {
-            Event::PostPinned { thread_id: p.thread_id, post_id: post_id.into(), actor, reason }
+            Event::PostPinned { thread_id: p.thread_id, post_id: post_id.into(), actor, reason, case: None }
         } else {
-            Event::PostUnpinned { thread_id: p.thread_id, post_id: post_id.into(), actor, reason }
+            Event::PostUnpinned { thread_id: p.thread_id, post_id: post_id.into(), actor, reason, overruled_by: None }
         }])?;
         Ok(())
+    }
+
+    /// Case law: pin a post as the ruling for a named case. Another visible post of the same
+    /// thread pinned under the same (normalised) case is overruled in the same record: it is
+    /// unpinned and keeps an `overruled_by` note, so it stays readable as history. Rulings for
+    /// other cases are untouched. Returns the normalised case and the overruled post IDs.
+    pub fn pin_case(&mut self, actor: Actor, post_id: &str, case: &str, reason: &str) -> BoardResult<(String, Vec<String>)> {
+        let p = self.post_in_thread(post_id)?;
+        if p.hidden.is_some() {
+            return Err(BoardError::invalid("An archived post cannot be pinned. Restore it first."));
+        }
+        if p.retracted.is_some() {
+            return Err(BoardError::invalid(format!("{post_id} was retracted by its author and cannot be a ruling.")));
+        }
+        let case = crate::model::normalize_case(case);
+        if case.is_empty() {
+            return Err(BoardError::invalid(
+                "Give the `case` this ruling covers: the attributes that define the situation, for example \"overseas jewelry, any tier\".",
+            ));
+        }
+        if p.pinned && p.pin_case.as_deref() == Some(case.as_str()) {
+            return Ok((case, vec![]));
+        }
+        let reason = reason.trim().to_string();
+        let overruled: Vec<String> = self
+            .state
+            .threads
+            .get(&p.thread_id)
+            .map(|t| {
+                t.post_ids
+                    .iter()
+                    .filter(|id| id.as_str() != post_id)
+                    .filter_map(|id| self.state.posts.get(id))
+                    .filter(|o| o.pinned && o.hidden.is_none() && o.pin_case.as_deref() == Some(case.as_str()))
+                    .map(|o| o.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut events: Vec<Event> = overruled
+            .iter()
+            .map(|old| Event::PostUnpinned {
+                thread_id: p.thread_id.clone(),
+                post_id: old.clone(),
+                actor: actor.clone(),
+                reason: format!("overruled by {post_id} for [{case}]: {reason}"),
+                overruled_by: Some(post_id.to_string()),
+            })
+            .collect();
+        events.push(Event::PostPinned { thread_id: p.thread_id, post_id: post_id.into(), actor, reason, case: Some(case.clone()) });
+        self.commit(events)?;
+        Ok((case, overruled))
     }
 
     pub fn hide_post(&mut self, actor: Actor, post_id: &str, hidden: bool, reason: &str) -> BoardResult<()> {
@@ -936,9 +1254,86 @@ impl Board {
         Ok(())
     }
 
+    /// The author withdraws its own post. The post stays visible, marked retracted and ranked
+    /// last; from now on it neither earns nor loses reputation, and it keeps the losses it
+    /// already took. Returns false when the post was already retracted.
+    pub fn retract(&mut self, agent_id: &str, post_id: &str, reason: &str) -> BoardResult<bool> {
+        self.ensure_access()?;
+        self.agent(agent_id)?;
+        let post_id = post_id.trim().to_uppercase();
+        let p = self.post_in_thread(&post_id)?;
+        self.visible_thread(&p.thread_id)?;
+        if p.author != agent_id {
+            return Err(BoardError::invalid(format!(
+                "{post_id} is not your post. Only its author can retract it; contradict it with your outcome instead."
+            )));
+        }
+        if p.retracted.is_some() {
+            return Ok(false);
+        }
+        let reason = clean(reason);
+        if reason.chars().count() < 10 {
+            return Err(BoardError::invalid(
+                "Say why you retract it (at least 10 characters): which outcome refuted it, or that it was never verified.",
+            ));
+        }
+        self.commit(vec![Event::PostRetracted {
+            thread_id: p.thread_id,
+            post_id,
+            agent_id: agent_id.into(),
+            reason: reason.chars().take(400).collect(),
+        }])?;
+        Ok(true)
+    }
+
+    /// Record a graded trial for a case type (`ohmygod tried`). The agent ID is optional so that a
+    /// missing `--agent` never loses the evidence. The case type is built from the raw
+    /// `name=value` fields (see [`crate::trials::prepare`]); `malformed` are field arguments that
+    /// held no `name=value`. Returns the case-type key and the notes for the agent.
+    pub fn record_trial(
+        &mut self,
+        agent_id: Option<&str>,
+        fields: &[(String, String)],
+        malformed: &[String],
+        action: &str,
+        reason: Option<&str>,
+        score: u32,
+        case_id: Option<&str>,
+    ) -> BoardResult<crate::trials::Prepared> {
+        self.ensure_access()?;
+        if !self.features.case_trials {
+            return Err(BoardError::invalid("Case trials are turned off on this board. Give feedback and reply in threads instead."));
+        }
+        let agent_id = match agent_id.map(str::trim).filter(|a| !a.is_empty()) {
+            Some(a) => {
+                self.agent(a)?;
+                a.to_string()
+            }
+            None => "unknown".to_string(),
+        };
+        let mut prepared = crate::trials::prepare(fields, malformed, &self.state.trials).map_err(BoardError::invalid)?;
+        let action = crate::trials::prepare_action(action, &self.state.trials).map_err(BoardError::invalid)?;
+        prepared.notes.extend(action.note.clone());
+        if score > 100 {
+            return Err(BoardError::invalid("--score is the graded score from 0 to 100."));
+        }
+        let cut = |s: String| -> String { s.chars().take(60).collect() };
+        self.commit(vec![Event::TrialRecorded {
+            agent_id,
+            case_type: crate::trials::key_for_new(&self.state.trials, &prepared.fields),
+            fields: Some(prepared.fields.clone()),
+            action: cut(action.word),
+            action_text: action.text,
+            reason: reason.and_then(crate::trials::normalize_code).map(cut),
+            score,
+            case_id: case_id.map(|c| c.trim().chars().take(60).collect::<String>()).filter(|c| !c.is_empty()),
+        }])?;
+        Ok(prepared)
+    }
+
     pub fn resolve_disputes(&mut self, actor: Actor, post_id: &str, reason: &str) -> BoardResult<()> {
         let p = self.post_in_thread(post_id)?;
-        if p.disputes.is_empty() {
+        if p.disputes.is_empty() && p.contradictions.is_empty() {
             return Ok(());
         }
         self.commit(vec![Event::DisputesResolved {
@@ -948,6 +1343,42 @@ impl Board {
             reason: reason.trim().into(),
         }])?;
         Ok(())
+    }
+
+    /// Create or replace the moderator digest of a thread: a short synthesis of what its posts
+    /// report. It must cite post IDs of this thread and only those.
+    pub fn write_digest(&mut self, actor: Actor, thread_id: &str, text: &str, reason: &str) -> BoardResult<u32> {
+        let t = self.visible_thread(thread_id)?;
+        let text = text.trim().replace("\r\n", "\n");
+        let reason = reason.trim().to_string();
+        if reason.len() < 4 {
+            return Err(BoardError::invalid("Give a reason."));
+        }
+        if text.is_empty() {
+            return Err(BoardError::invalid("The digest is empty."));
+        }
+        let n = text.chars().count();
+        if n > MAX_DIGEST_CHARS {
+            return Err(BoardError::invalid(format!("The digest has {n} characters; the limit is {MAX_DIGEST_CHARS}. Shorten it.")));
+        }
+        let visible: Vec<&String> =
+            t.post_ids.iter().filter(|id| self.state.posts.get(*id).map(|p| p.hidden.is_none()).unwrap_or(false)).collect();
+        if visible.len() < MIN_DIGEST_POSTS {
+            return Err(BoardError::invalid(format!("{thread_id} has {} visible post(s); a digest needs at least {MIN_DIGEST_POSTS}.", visible.len())));
+        }
+        let cited = cited_posts(&text);
+        if cited.is_empty() {
+            return Err(BoardError::invalid("Cite the posts each point comes from, for example (P12, P15)."));
+        }
+        if let Some(bad) = cited.iter().find(|c| !t.post_ids.contains(c)) {
+            return Err(BoardError::invalid(format!("{bad} is not a post in {thread_id}. A digest cites only this thread's posts.")));
+        }
+        if t.digest.as_ref().is_some_and(|d| d.text == text) {
+            return Ok(visible.len() as u32);
+        }
+        let posts = visible.len() as u32;
+        self.commit(vec![Event::DigestWritten { thread_id: thread_id.into(), text, posts, actor, reason }])?;
+        Ok(posts)
     }
 
     /// Change how many threads stay active. When the board holds more, the least recently

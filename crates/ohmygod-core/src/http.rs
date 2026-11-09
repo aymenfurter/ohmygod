@@ -95,7 +95,7 @@ async fn api_search(State(svc): State<Arc<Service>>, headers: HeaderMap, Query(q
         return api_error(e.kind, e.message);
     }
     let hits = board.search(&q.q, q.archived, q.limit.unwrap_or(20));
-    markdown(render::search_results(&q.q, &hits, q.archived))
+    markdown(render::search_results(&board, &q.q, &hits, q.archived))
 }
 
 #[derive(Deserialize)]

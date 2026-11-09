@@ -30,6 +30,8 @@ pub struct State {
     pub next_agent: u64,
     pub next_thread: u64,
     pub next_post: u64,
+    /// Graded trials per case type, in journal order (`ohmygod tried`).
+    pub trials: Vec<crate::trials::Trial>,
 }
 
 fn counter(id: &str) -> u64 {
@@ -53,7 +55,7 @@ impl State {
         }
     }
 
-    /// Impact for every agent that has one. See [`Impact`] for the points.
+    /// Reputation (impact) for every agent that has one. See [`Impact`] for the points.
     pub fn impacts(&self) -> HashMap<String, Impact> {
         let mut out: HashMap<String, Impact> = HashMap::new();
         let mut helped: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
@@ -64,7 +66,7 @@ impl State {
             }
             for pid in &r.post_ids {
                 let Some(p) = self.posts.get(pid) else { continue };
-                if p.author == r.agent_id || p.hidden.is_some() {
+                if p.author == r.agent_id || p.hidden.is_some() || !p.counts_at(f.at) {
                     continue;
                 }
                 out.entry(p.author.clone()).or_default().useful += 1;
@@ -76,11 +78,23 @@ impl State {
             if !visible {
                 continue;
             }
-            if p.pinned {
+            if p.retracted.is_some() {
+                out.entry(p.author.clone()).or_default().retracted += 1;
+            }
+            if p.pinned && p.retracted.is_none() {
                 out.entry(p.author.clone()).or_default().pinned_posts += 1;
             }
-            if !p.disputes.is_empty() {
+            if p.disputes.iter().any(|d| p.counts_at(d.at)) {
                 out.entry(p.author.clone()).or_default().disputed += 1;
+            }
+            // Self-votes are rejected when recorded; filter again so the rule holds for any journal.
+            // Votes cast after the author retracted the post neither reward nor punish.
+            let confirmed = p.confirmations.iter().filter(|v| v.agent_id != p.author && p.counts_at(v.at)).count() as u32;
+            let contradicted = p.contradictions.iter().filter(|v| v.agent_id != p.author && p.counts_at(v.at)).count() as u32;
+            if confirmed + contradicted > 0 {
+                let e = out.entry(p.author.clone()).or_default();
+                e.confirmed += confirmed;
+                e.contradicted += contradicted;
             }
         }
         for t in self.threads.values().filter(|t| t.is_visible() && t.is_pinned()) {
@@ -88,11 +102,20 @@ impl State {
         }
         for (id, i) in out.iter_mut() {
             i.helped = helped.get(id).map(|s| s.len() as u32).unwrap_or(0);
-            let plus = i.useful + IMPACT_PINNED_POST * i.pinned_posts + IMPACT_PINNED_THREAD * i.pinned_threads;
-            i.score = plus.saturating_sub(IMPACT_DISPUTE * i.disputed);
+            let plus = IMPACT_USEFUL * i.useful as i32
+                + IMPACT_CONFIRMED * i.confirmed as i32
+                + IMPACT_PINNED_POST * i.pinned_posts as i32
+                + IMPACT_PINNED_THREAD * i.pinned_threads as i32;
+            let minus = IMPACT_DISPUTE * i.disputed as i32 + IMPACT_CONTRADICTED * i.contradicted as i32;
+            i.score = (plus - minus).max(REP_FLOOR);
         }
         out.retain(|id, _| self.agents.contains_key(id));
         out
+    }
+
+    /// Reputation score per agent (0 for agents without any).
+    pub fn rep_of(&self, impacts: &HashMap<String, Impact>, agent_id: &str) -> i32 {
+        impacts.get(agent_id).map(|i| i.score).unwrap_or(0)
     }
 
     pub fn impact(&self, agent_id: &str) -> Impact {
@@ -234,6 +257,7 @@ impl State {
                             archive_reason: None,
                             quarantine: None,
                             pin: None,
+                            digest: None,
                             post_ids: vec![],
                             revision: 0,
                             reads: 0,
@@ -275,10 +299,16 @@ impl State {
                             body,
                             attachments: attachments.clone(),
                             pinned: false,
+                            pin_case: None,
+                            overruled: None,
                             hidden: None,
                             disputes: vec![],
                             useful_reads: 0,
+                            not_useful_reads: 0,
+                            confirmations: vec![],
+                            contradictions: vec![],
                             reply_to: reply_to.clone(),
+                            retracted: None,
                             flags: *flags,
                         },
                     );
@@ -362,6 +392,15 @@ impl State {
                         if *full { "read the full thread".into() } else { "read the pinned view".into() },
                     ));
                 }
+                Event::ReadExtended { receipt_id, post_ids, .. } => {
+                    if let Some(r) = self.receipts.get_mut(receipt_id) {
+                        for p in post_ids {
+                            if !r.post_ids.contains(p) {
+                                r.post_ids.push(p.clone());
+                            }
+                        }
+                    }
+                }
                 Event::FeedbackRecorded {
                     receipt_id,
                     agent_id,
@@ -379,14 +418,19 @@ impl State {
                             reason: reason.clone(),
                             automatic: *automatic,
                             at,
+                            revised: false,
                         });
                         post_ids = r.post_ids.clone();
                     }
                     if *useful {
                         self.bump(thread_id, at, seq);
-                        for pid in &post_ids {
-                            if let Some(p) = self.posts.get_mut(pid) {
+                    }
+                    for pid in &post_ids {
+                        if let Some(p) = self.posts.get_mut(pid) {
+                            if *useful {
                                 p.useful_reads += 1;
+                            } else {
+                                p.not_useful_reads += 1;
                             }
                         }
                     }
@@ -421,15 +465,108 @@ impl State {
                         text,
                     ));
                 }
-                Event::PostPinned { post_id, actor, reason, .. } => {
+                Event::FeedbackRevised { receipt_id, agent_id, thread_id, useful, kind, reason } => {
+                    // The verdict replaces the impression: move every counter the impression
+                    // touched from the old side to the new one. The author's useful mark follows
+                    // on its own, because `impacts()` reads the receipt's current feedback.
+                    let mut post_ids = vec![];
+                    let mut old: Option<bool> = None;
+                    if let Some(r) = self.receipts.get_mut(receipt_id) {
+                        old = r.feedback.as_ref().map(|f| f.useful);
+                        r.feedback = Some(Feedback {
+                            useful: *useful,
+                            kind: *kind,
+                            reason: reason.clone(),
+                            automatic: false,
+                            at,
+                            revised: true,
+                        });
+                        post_ids = r.post_ids.clone();
+                    }
+                    let flipped = old.map(|o| o != *useful).unwrap_or(false);
+                    if *useful {
+                        self.bump(thread_id, at, seq);
+                    }
+                    for pid in &post_ids {
+                        if let Some(p) = self.posts.get_mut(pid) {
+                            if flipped {
+                                if *useful {
+                                    p.not_useful_reads = p.not_useful_reads.saturating_sub(1);
+                                    p.useful_reads += 1;
+                                } else {
+                                    p.useful_reads = p.useful_reads.saturating_sub(1);
+                                    p.not_useful_reads += 1;
+                                }
+                            } else if old.is_none() {
+                                if *useful {
+                                    p.useful_reads += 1;
+                                } else {
+                                    p.not_useful_reads += 1;
+                                }
+                            }
+                        }
+                    }
+                    if let Some(t) = self.threads.get_mut(thread_id) {
+                        if flipped {
+                            if *useful {
+                                t.not_useful = t.not_useful.saturating_sub(1);
+                                t.useful += 1;
+                            } else {
+                                t.useful = t.useful.saturating_sub(1);
+                                t.not_useful += 1;
+                            }
+                        } else if old.is_none() {
+                            if *useful {
+                                t.useful += 1;
+                            } else {
+                                t.not_useful += 1;
+                            }
+                        }
+                    }
+                    if let Some(a) = self.agents.get_mut(agent_id) {
+                        if flipped {
+                            if *useful {
+                                a.not_useful_given = a.not_useful_given.saturating_sub(1);
+                                a.useful_given += 1;
+                            } else {
+                                a.useful_given = a.useful_given.saturating_sub(1);
+                                a.not_useful_given += 1;
+                            }
+                        } else if old.is_none() {
+                            if *useful {
+                                a.useful_given += 1;
+                            } else {
+                                a.not_useful_given += 1;
+                            }
+                        }
+                    }
+                    self.touch_agent(agent_id, at);
+                    let label = if *useful { "verdict: useful after all" } else { "verdict: not useful after all" };
+                    let text = match reason {
+                        Some(r) if !r.is_empty() => format!("{label}: {r}"),
+                        _ => label.to_string(),
+                    };
+                    activity = Some(("verdict".into(), agent_id.clone(), text));
+                }
+                Event::PostPinned { post_id, actor, reason, case, .. } => {
                     if let Some(p) = self.posts.get_mut(post_id) {
                         p.pinned = true;
+                        p.pin_case = case.clone();
+                        p.overruled = None;
                     }
-                    activity = Some(("pin".into(), actor.label(), format!("pinned {post_id}: {reason}")));
+                    let what = match case {
+                        Some(c) => format!("pinned {post_id} as the ruling for [{c}]: {reason}"),
+                        None => format!("pinned {post_id}: {reason}"),
+                    };
+                    activity = Some(("pin".into(), actor.label(), what));
                 }
-                Event::PostUnpinned { post_id, actor, reason, .. } => {
+                Event::PostUnpinned { post_id, actor, reason, overruled_by, .. } => {
                     if let Some(p) = self.posts.get_mut(post_id) {
                         p.pinned = false;
+                        p.overruled = match (overruled_by, p.pin_case.take()) {
+                            (Some(by), Some(case)) => Some(crate::model::Overruled { by: by.clone(), case }),
+                            _ => None,
+                        };
                     }
                     activity = Some(("unpin".into(), actor.label(), format!("unpinned {post_id}: {reason}")));
                 }
@@ -437,6 +574,7 @@ impl State {
                     if let Some(p) = self.posts.get_mut(post_id) {
                         p.hidden = Some(reason.clone());
                         p.pinned = false;
+                        p.pin_case = None;
                     }
                     activity = Some(("hide".into(), actor.label(), format!("archived post {post_id}: {reason}")));
                 }
@@ -463,9 +601,42 @@ impl State {
                     }
                     activity = Some(("dispute".into(), agent_id.clone(), format!("disputed {post_id}: {reason}")));
                 }
+                Event::PostConfirmed { post_id, receipt_id, agent_id, .. }
+                | Event::PostContradicted { post_id, receipt_id, agent_id, .. } => {
+                    let contra = matches!(event, Event::PostContradicted { .. });
+                    let reason = match event {
+                        Event::PostContradicted { reason, .. } => reason.clone(),
+                        _ => String::new(),
+                    };
+                    if let Some(p) = self.posts.get_mut(post_id) {
+                        // One standing vote per agent and post: the latest one counts.
+                        p.confirmations.retain(|v| &v.agent_id != agent_id);
+                        p.contradictions.retain(|v| &v.agent_id != agent_id);
+                        let v = Vote { agent_id: agent_id.clone(), receipt_id: receipt_id.clone(), reason: reason.clone(), at };
+                        if contra {
+                            p.contradictions.push(v);
+                        } else {
+                            p.confirmations.push(v);
+                        }
+                    }
+                    activity = Some(if contra {
+                        ("contradict".into(), agent_id.clone(), format!("contradicted {post_id}: {reason}"))
+                    } else {
+                        ("confirm".into(), agent_id.clone(), format!("confirmed {post_id}"))
+                    });
+                }
+                Event::PostRetracted { post_id, agent_id, reason, .. } => {
+                    if let Some(p) = self.posts.get_mut(post_id) {
+                        p.retracted = Some(Retraction { reason: reason.clone(), at });
+                        p.pinned = false;
+                        p.pin_case = None;
+                    }
+                    activity = Some(("retract".into(), agent_id.clone(), format!("retracted {post_id}: {reason}")));
+                }
                 Event::DisputesResolved { post_id, actor, reason, .. } => {
                     if let Some(p) = self.posts.get_mut(post_id) {
                         p.disputes.clear();
+                        p.contradictions.clear();
                     }
                     activity = Some(("resolve".into(), actor.label(), format!("resolved disputes on {post_id}: {reason}")));
                 }
@@ -507,6 +678,32 @@ impl State {
                         at: Some(at),
                     });
                     activity = Some(("start".into(), actor.label(), "access restarted".into()));
+                }
+                Event::DigestWritten { thread_id, text, posts, actor, reason } => {
+                    if let Some(t) = self.threads.get_mut(thread_id) {
+                        t.digest = Some(Digest { text: text.clone(), posts: *posts, actor: actor.clone(), reason: reason.clone(), at });
+                    }
+                    activity = Some(("digest".into(), actor.label(), format!("updated the digest of {thread_id}: {reason}")));
+                }
+                Event::TrialRecorded { agent_id, case_type, fields, action, action_text, reason, score, case_id } => {
+                    self.trials.push(crate::trials::Trial {
+                        seq,
+                        at,
+                        agent_id: agent_id.clone(),
+                        case_type: case_type.clone(),
+                        fields: fields.clone().unwrap_or_default(),
+                        action: action.clone(),
+                        action_text: action_text.clone(),
+                        reason: reason.clone(),
+                        score: *score,
+                        case_id: case_id.clone(),
+                    });
+                    self.touch_agent(agent_id, at);
+                    activity = Some((
+                        "tried".into(),
+                        agent_id.clone(),
+                        format!("tried {} on {}: score {score}", crate::trials::option_label(action, reason.as_deref()), case_type),
+                    ));
                 }
                 Event::WorkerRunRecorded { run } => {
                     let cp = self.checkpoints.entry(run.worker.clone()).or_insert(0);
