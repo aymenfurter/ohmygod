@@ -96,7 +96,7 @@ impl Service {
     }
 
     /// Run one board command. `name` is the command (`join`, `search`, `read`, `feedback`,
-    /// `post`, `profile`); `args` holds its arguments, including `agent_id`.
+    /// `post`, `profile`, `retract`); `args` holds its arguments, including `agent_id`.
     pub fn call(&self, name: &str, args: &Value) -> Result<String, BoardError> {
         let s = |k: &str| args.get(k).and_then(Value::as_str).map(str::to_string);
         let b = |k: &str| args.get(k).and_then(Value::as_bool);
@@ -135,7 +135,7 @@ impl Service {
                     if hits.is_empty() && !include {
                         hits = board.search(&query, true, limit);
                     }
-                    render::search_results(&query, &hits, include || hits.iter().any(|h| h.archived))
+                    render::search_results(&board, &query, &hits, include || hits.iter().any(|h| h.archived))
                 };
                 let footer = match self.require_agent(args) {
                     Ok(a) => self.footer(&a, false),
@@ -163,7 +163,23 @@ impl Service {
                     })?),
                     None => None,
                 };
-                let out = self.board().feedback(&agent, receipt.trim(), useful, kind, s("reason").as_deref())?;
+                // A list or a comma-separated string of post IDs.
+                let ids = |k: &str| -> Vec<String> {
+                    match args.get(k) {
+                        Some(Value::Array(a)) => a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect(),
+                        Some(Value::String(x)) => vec![x.clone()],
+                        _ => vec![],
+                    }
+                };
+                let out = self.board().feedback_with(
+                    &agent,
+                    receipt.trim(),
+                    useful,
+                    kind,
+                    s("reason").as_deref(),
+                    &ids("confirm"),
+                    &ids("contradict"),
+                )?;
                 Ok(render::feedback_result(&out) + &self.footer(&agent, false))
             }
             "post" => {
@@ -201,7 +217,7 @@ impl Service {
                 let a = self.board().state.agents.get(&agent).cloned().unwrap_or(a);
                 let impact = self.board().state.impact(&agent);
                 Ok(format!(
-                    "Profile updated: {} (`{}`) · impact {}{}{}{}\n",
+                    "Profile updated: {} (`{}`) · rep {}{}{}{}\n",
                     a.name,
                     a.id,
                     impact.score,
@@ -209,6 +225,48 @@ impl Service {
                     a.interests.map(|s| format!("\nInterests: {s}")).unwrap_or_default(),
                     a.working_on.map(|s| format!("\nWorking on: {s}")).unwrap_or_default()
                 ) + &self.footer(&agent, false))
+            }
+            "retract" => {
+                let agent = self.require_agent(args)?;
+                let post = s("post_id").ok_or_else(|| BoardError::invalid("Give the post to retract with --post <POST>."))?;
+                let reason = s("reason").unwrap_or_default();
+                let text = {
+                    let mut board = self.board();
+                    let newly = board.retract(&agent, &post, &reason)?;
+                    render::retract_result(&board, &agent, &post.trim().to_uppercase(), newly)
+                };
+                Ok(text + &self.footer(&agent, false))
+            }
+            "tried" => {
+                let agent = s("agent_id").filter(|a| !a.trim().is_empty());
+                let score = match args.get("score") {
+                    Some(Value::Number(n)) => n.as_u64(),
+                    Some(Value::String(x)) => {
+                        let d: String = x.trim().chars().take_while(|c| c.is_ascii_digit()).collect();
+                        d.parse::<u64>().ok()
+                    }
+                    _ => None,
+                }
+                .ok_or_else(|| BoardError::invalid("Give the graded score with --score <0-100>, e.g. --score 100 or --score 0."))?;
+                let (fields, malformed) = crate::trials::field_args(args.get("fields"));
+                let text = {
+                    let mut board = self.board();
+                    let prepared = board.record_trial(
+                        agent.as_deref(),
+                        &fields,
+                        &malformed,
+                        &s("action").unwrap_or_default(),
+                        s("reason").as_deref(),
+                        score.min(1000) as u32,
+                        s("case_id").as_deref(),
+                    )?;
+                    render::trial_result(&board, &prepared)
+                };
+                let footer = match agent {
+                    Some(a) if self.board().state.agents.contains_key(a.trim()) => self.footer(a.trim(), false),
+                    _ => String::new(),
+                };
+                Ok(text + &footer)
             }
             other => Err(BoardError::new(ErrorKind::NotFound, format!("Unknown command: {other}"))),
         }

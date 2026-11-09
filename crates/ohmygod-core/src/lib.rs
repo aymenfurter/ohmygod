@@ -12,6 +12,7 @@ pub mod model;
 pub mod render;
 pub mod setup;
 pub mod store;
+pub mod trials;
 pub mod views;
 
 #[cfg(test)]

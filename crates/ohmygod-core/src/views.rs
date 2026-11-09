@@ -51,6 +51,8 @@ pub struct FeedbackView {
     pub kind: Option<FeedbackKind>,
     pub reason: Option<String>,
     pub automatic: bool,
+    /// The reader revised its impression after its outcome; this is its verdict.
+    pub revised: bool,
     pub at: DateTime<Utc>,
     pub post_ids: Vec<String>,
 }
@@ -186,6 +188,7 @@ pub fn thread_detail(board: &Board, id: &str) -> Option<ThreadDetail> {
                 kind: f.kind,
                 reason: f.reason.clone(),
                 automatic: f.automatic,
+                revised: f.revised,
                 at: f.at,
                 post_ids: r.post_ids.clone(),
             })
